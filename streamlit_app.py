@@ -17,6 +17,7 @@ import hkmon_rooms as R
 import hkmon_scores as SCORES
 import hkmon_sfx as SFX
 import hkmon_styles as STY
+import hkmon_table as TBL
 import hkmon_xiangqi as XQ
 from hkmon_i18n import t
 
@@ -43,8 +44,16 @@ def _init_state():
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
+    try:  # shareable deep links: /?page=games etc.
+        qa = st.query_args
+        pg = qa.get("page") if isinstance(qa, dict) else (qa.get("page") if hasattr(qa, "get") else None)
+        if pg and pg in PAGES_LATER:
+            st.session_state.page = pg
+    except Exception:
+        pass
 
 
+PAGES_LATER = ["home", "deck", "pvp", "battle", "games", "library", "help"]
 _init_state()
 
 
@@ -500,17 +509,20 @@ if st.session_state.page == "home":
           <span class="hk-badge">🤝 2P</span>
         </div></div>''', unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     if c1.button(t(lang(), "cta_start"), type="primary"):
         go("deck")
         st.rerun()
     if c2.button(t(lang(), "nav_pvp")):
         go("pvp")
         st.rerun()
-    if c3.button(t(lang(), "cta_lib")):
+    if c3.button(t(lang(), "nav_games")):
+        go("games")
+        st.rerun()
+    if c4.button(t(lang(), "cta_lib")):
         go("library")
         st.rerun()
-    if c4.button(t(lang(), "cta_help")):
+    if c5.button(t(lang(), "cta_help")):
         go("help")
         st.rerun()
 
@@ -1090,104 +1102,56 @@ elif st.session_state.page == "games":
             st.session_state.mj_new = True
             st.rerun()
 
-        c1, c2 = st.columns(2)
-        c1.markdown(f"**{t(lang(),'mj_wall')}** `{len(g['wall'])}`")
-        c2.markdown(f"**{t(lang(),'mj_score')}**　" + "　".join(
-            f"`{g['names'][p][:4]} {g['scores'][p]}`" for p in range(4)))
-
         if g["await"] is None and g["over"] is None:
             MJ.advance(g)
 
-        if g["over"]:
-            o = g["over"]
-            if o["winner"] is None:
-                st.warning("🀄 " + "、".join(o["labels"]))
-            else:
-                name = g["names"][o["winner"]]
-                st.success(f"🎉 **{name}**　{o['fan']} {t(lang(),'mj_fan')}　"
-                           f"（{'、'.join(o['labels'])}）")
-                if o["winner"] == 0:
-                    st.balloons()
-        elif g["await"]:
-            aw = g["await"]
-            if aw["type"] == "discard":
-                st.info("🖐 " + t(lang(), "mj_your_turn"))
-                hand0 = g["hands"][0]
-                zimo = MJ.can_win(hand0, len(g["melds"][0])) or MJ.is_thirteen_orphans(hand0, len(g["melds"][0]))
-                if zimo and st.button(t(lang(), "mj_zimo"), type="primary"):
-                    MJ._win_game(g, 0, aw.get("drawn") if aw.get("drawn") is not None else 0, True)
-                    g["await"] = None
-                    st.rerun()
-                st.session_state.setdefault("mj_sel", None)
-                hs = MJ.sorted_hand(hand0)
-                sel = st.session_state.mj_sel
-                for row_start in range(0, len(hs), 9):
-                    hcols = st.columns(9, gap="small")
-                    for j, tid in enumerate(hs[row_start:row_start + 9]):
-                        key = row_start + j
-                        mark = "▶" if sel == key else ""
-                        extra = " ✨" if aw.get("drawn") is not None and tid == aw["drawn"] and not sel == key else ""
-                        if hcols[j].button(mark + MJ.NAMES[tid] + extra, key=f"mjt{key}"):
-                            st.session_state.mj_sel = None if sel == key else key
-                            st.rerun()
-                if sel is not None and sel < len(hs):
-                    if st.button(f"🎯 {t(lang(),'mj_confirm')}：{MJ.NAMES[hs[sel]]}", type="primary",
-                                 key="mj_confirm"):
-                        MJ.human_discard(g, hs[sel])
-                        st.session_state.mj_sel = None
-                        st.rerun()
-                # tenpai hint
-                waiting = []
-                for tt in range(34):
-                    hand0[tt] += 1
-                    if MJ.can_win(hand0, len(g["melds"][0])) or MJ.is_thirteen_orphans(hand0, len(g["melds"][0])):
-                        waiting.append(tt)
-                    hand0[tt] -= 1
-                if waiting:
-                    st.caption(t(lang(), "mj_waiting") + " " +
-                               "、".join(MJ.NAMES[tt] for tt in waiting))
-            else:
-                st.warning(t(lang(), "mj_claim") + f" **{MJ.NAMES[aw['tile']]}**")
-                o = aw["opts"]
-                b1, b2, b3, b4 = st.columns(4)
-                if "win" in o and b1.button(t(lang(), "mj_win"), type="primary"):
-                    MJ.human_claim(g, "win", None)
-                    st.rerun()
-                if "kong" in o and b2.button(t(lang(), "mj_kong")):
-                    MJ.human_claim(g, "kong", None)
-                    st.rerun()
-                if "pong" in o and b3.button(t(lang(), "mj_pong")):
-                    MJ.human_claim(g, "pong", None)
-                    st.rerun()
-                chi_lo = None
-                if "chi" in o:
-                    if len(o["chi"]) > 1:
-                        chi_lo = st.radio("mj_chi", o["chi"],
-                                          format_func=lambda lo: MJ.NAMES[lo] + MJ.NAMES[lo + 1] + MJ.NAMES[lo + 2],
-                                          horizontal=True, key="mj_chi_sel")
-                    else:
-                        chi_lo = o["chi"][0]
-                    if b4.button(t(lang(), "mj_chi")):
-                        MJ.human_claim(g, "chi", chi_lo)
-                        st.rerun()
-                if st.button(t(lang(), "mj_skip")):
-                    MJ.skip_human_turn(g)
-                    st.rerun()
-        else:
-            st.caption("🀄 " + t(lang(), "mj_your_turn"))
+        view = TBL.build_view(g, st.session_state.get("mj_sel"))
+        res = TBL.MJ_TABLE(
+            key="mj_table_ui", data=view,
+            on_tile_click_change=lambda: None,
+            on_action_change=lambda: None)
+        tc = getattr(res, "tile_click", None)
+        act = getattr(res, "action", None)
 
-        # melds / rivers per player
-        st.markdown(f"**{t(lang(),'mj_river')}**")
-        for p in range(4):
-            melds_txt = "　".join(
-                ("碰" + MJ.NAMES[t2]) if k == "pong" else
-                (("上" + MJ.NAMES[t2] + MJ.NAMES[t2 + 1] + MJ.NAMES[t2 + 2]) if k == "chi" else
-                 ("槓" + MJ.NAMES[t2]))
-                for k, t2 in g["melds"][p])
-            river_txt = "、".join(MJ.NAMES[x] for x in g["rivers"][p][-10:])
-            who = "**你**" if p == 0 else g["names"][p]
-            line = f"{who}　{melds_txt}　|　{river_txt}" if (melds_txt or river_txt) else f"{who}　—"
-            st.caption(line)
+        acted = False
+        aw = g["await"]
+        if g["over"] is None and aw:
+            if tc is not None and aw["type"] == "discard":
+                if st.session_state.get("mj_sel") == tc:
+                    MJ.human_discard(g, view["hand"][tc])
+                    st.session_state.mj_sel = None
+                    acted = True
+                else:
+                    st.session_state.mj_sel = tc
+                    st.rerun()
+            if act and not acted:
+                if act == "confirm" and st.session_state.get("mj_sel") is not None and aw["type"] == "discard":
+                    MJ.human_discard(g, view["hand"][st.session_state.mj_sel])
+                    st.session_state.mj_sel = None
+                    acted = True
+                elif act == "zimo" and aw["type"] == "discard":
+                    drawn = aw.get("drawn")
+                    MJ._win_game(g, 0, drawn if drawn is not None else view["hand"][-1], True)
+                    g["await"] = None
+                    acted = True
+                elif aw["type"] == "claim":
+                    if act == "win":
+                        MJ.human_claim(g, "win", None)
+                        acted = True
+                    elif act == "pong":
+                        MJ.human_claim(g, "pong", None)
+                        acted = True
+                    elif act == "kong":
+                        MJ.human_claim(g, "kong", None)
+                        acted = True
+                    elif act.startswith("chi:"):
+                        MJ.human_claim(g, "chi", int(act.split(":")[1]))
+                        acted = True
+                    elif act == "skip":
+                        MJ.skip_human_turn(g)
+                        acted = True
+        if acted:
+            st.rerun()
 
         with st.expander("📜 log"):
             for line in g["log"][-12:]:
