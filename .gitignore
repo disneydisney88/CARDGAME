@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 st_server.log
+rooms.json
+scores.json
+rooms.json.tmp
+scores.json.tmp

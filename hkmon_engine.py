@@ -75,36 +75,49 @@ def random_deck_ids():
     return mons, items
 
 
-def start_battle(lang, deck_id, diff, mode, stage=1, record=None):
-    """Create a fresh battle state. record = previous log to carry over."""
+def start_battle(lang, deck_id, diff="normal", mode="quick", stage=1, record=None,
+                 labels=None, enemy_deck_id=None):
+    """Create a fresh battle state. record = previous log to carry over.
+
+    modes: "quick" / "gauntlet" (vs AI) · "hotseat" / "online" (two humans,
+    'p' = Player 1, 'e' = Player 2, no AI)."""
     deck = D.DECK[deck_id]
     if deck.get("random"):
         pmons, pitems = random_deck_ids()
     else:
         pmons, pitems = list(deck["mons"]), list(deck["items"])
 
-    enemy_deck_id = D.GAUNTLET[stage - 1] if mode == "gauntlet" else \
-        random.choice([d["id"] for d in D.CHOOSABLE_DECKS])
+    human_enemy = mode in ("hotseat", "online")
+    if human_enemy:
+        enemy_deck_id = enemy_deck_id or random.choice([d["id"] for d in D.CHOOSABLE_DECKS])
+        hp_mult = 1.0
+    elif mode == "gauntlet":
+        enemy_deck_id = D.GAUNTLET[stage - 1]
+        hp_mult = {"easy": 0.85, "normal": 1.0, "hard": 1.15}[diff]
+        hp_mult *= 1.0 + 0.05 * (stage - 1)
+    else:
+        enemy_deck_id = enemy_deck_id or random.choice([d["id"] for d in D.CHOOSABLE_DECKS])
+        hp_mult = {"easy": 0.85, "normal": 1.0, "hard": 1.15}[diff]
+
     edeck = D.DECK[enemy_deck_id]
     if edeck.get("random"):
-        emons, _ = random_deck_ids()
+        emons, eitems = random_deck_ids()
     else:
         emons = list(edeck["mons"])
+        eitems = list(edeck["items"]) if human_enemy else \
+            random.sample(["i01", "i02", "i03", "i04", "i08"], 2)
     random.shuffle(emons)
-    eitems = random.sample(["i01", "i02", "i03", "i04", "i08"], 2)
-
-    hp_mult = {"easy": 0.85, "normal": 1.0, "hard": 1.15}[diff]
-    if mode == "gauntlet":
-        hp_mult *= 1.0 + 0.05 * (stage - 1)
 
     state = {
         "lang": lang, "diff": diff, "mode": mode, "stage": stage,
         "deck_id": deck_id, "enemy_deck_id": enemy_deck_id,
+        "labels": labels or {"p": I18N.t(lang, "you"), "e": I18N.t(lang, "enemy")},
         "p": [_mk_fighter(m) for m in pmons],
         "e": [_mk_fighter(m, hp_mult) for m in emons],
         "pa": 0, "ea": 0,
         "pitems": list(pitems), "eitems": eitems,
-        "turn": 1, "over": False, "win": False, "pending": None,
+        "turn": 1, "over": False, "win": False, "winner": None, "pending": None,
+        "to_act": "p", "acted": [], "first_side": "p",
         "log": list(record or []), "sfx": [], "hit": None,
         "enemy_switched_this_round": False,
     }
@@ -129,7 +142,7 @@ def _apply_damage(state, atk_side, move, move_name, is_move2):
     def_side = "e" if atk_side == "p" else "p"
     dfd = active(state, def_side)
     lang = state["lang"]
-    p_label = I18N.t(lang, "you") if atk_side == "p" else I18N.t(lang, "enemy")
+    p_label = state["labels"][atk_side]
 
     _log(state, "m_use", p=p_label, m=move_name)
 
@@ -200,6 +213,7 @@ def _check_faints(state):
         if not alive(state["e"]):
             state["over"] = True
             state["win"] = True
+            state["winner"] = "p"
             _sfx(state, "win")
             _log(state, "m_win" if state["mode"] == "quick" else "m_stage_clear")
             if state["mode"] == "gauntlet" and state["stage"] == 3:
@@ -216,7 +230,7 @@ def _check_faints(state):
             if score > best_score:
                 best, best_score = i, score
         state["ea"] = best
-        _log(state, "m_switch", p=I18N.t(lang, "enemy"), n=_name(lang, state["e"][best]["id"]))
+        _log(state, "m_switch", p=state["labels"]["e"], n=_name(lang, state["e"][best]["id"]))
     # player side
     pa = state["p"][state["pa"]]
     if pa["hp"] <= 0:
@@ -225,10 +239,11 @@ def _check_faints(state):
         if not alive(state["p"]):
             state["over"] = True
             state["win"] = False
+            state["winner"] = "e"
             _sfx(state, "lose")
             _log(state, "m_lose")
             return "over"
-        state["pending"] = "switch"
+        state["pending"] = "p"
     return None
 
 
@@ -259,7 +274,7 @@ def switch_mon(state, side, idx):
     f["st_turns"] = 0
     f["buff"] = 0
     f["shield"] = False
-    label = I18N.t(lang, "you") if side == "p" else I18N.t(lang, "enemy")
+    label = state["labels"][side]
     _log(state, "m_switch", p=label, n=_name(lang, f["id"]))
     _sfx(state, "switch")
 
@@ -272,7 +287,7 @@ def use_item(state, side, item_id):
     items.remove(item_id)
     it = D.ITEM[item_id]
     eff = it["effect"]
-    label = I18N.t(lang, "you") if side == "p" else I18N.t(lang, "enemy")
+    label = state["labels"][side]
     _log(state, "m_item", p=label, i=it["name"][lang])
 
     def act(side_f):
@@ -463,6 +478,72 @@ def end_round(state):
 
 
 # ------------------------------------------------------- full round flow ----
+def perform(state, side, kind, arg=None):
+    """One side's single action: move1 / move2 / item / switch."""
+    f = active(state, side)
+    card = D.MON[f["id"]]
+    lang = state["lang"]
+    if kind in ("move1", "move2"):
+        if f["status"] == "para" and random.random() < PARA_SKIP:
+            _log(state, "m_para_skip", n=_name(lang, f["id"]))
+            return
+        if kind == "move1":
+            mv = _move1(card, state[side].index(f))
+            _apply_damage(state, side, mv, mv["name"][lang], False)
+        else:
+            if f["cd2"] > 0:
+                return
+            mv = card["move2"]
+            f["cd2"] = mv["cd"]
+            _apply_damage(state, side, mv, mv["name"][lang], True)
+    elif kind == "item":
+        if arg:
+            use_item(state, side, arg)
+    elif kind in ("switch", "replace"):
+        if arg is not None:
+            switch_mon(state, side, arg)
+
+
+def pvp_action(state, side, kind, arg=None):
+    """Hotseat / online PvP turn machine. 'p' = P1, 'e' = P2.
+
+    A replacement after a faint never consumes the round slot; the round
+    ends (tick + first-side alternation) once both sides have acted."""
+    if state["over"]:
+        return
+    if state["pending"]:
+        if state["pending"] == side and kind in ("replace", "switch") and arg is not None:
+            switch_mon(state, side, arg)
+            state["pending"] = None
+        return
+    if side != state["to_act"]:
+        return
+    perform(state, side, kind, arg)
+    if _check_faints(state) == "over":
+        return
+    if state["pending"]:                      # opponent is human: let them replace
+        state["to_act"] = state["pending"]
+        return
+    state["acted"].append(side)
+    if len(state["acted"]) >= 2:
+        state["acted"] = []
+        end_round(state)
+        state["to_act"] = state["first_side"]
+        state["first_side"] = "e" if state["first_side"] == "p" else "p"
+    else:
+        state["to_act"] = "e" if side == "p" else "p"
+
+
+def pvp_surrender(state, side):
+    if state["over"]:
+        return
+    state["over"] = True
+    state["winner"] = "e" if side == "p" else "p"
+    state["win"] = state["winner"] == "p"
+    _log(state, "m_win_pvp", n=state["labels"][state["winner"]])
+    _sfx(state, "win")
+
+
 def next_stage_state(state):
     """Next gauntlet stage: carry the player's team over, healed by 30%."""
     healed = []
@@ -477,7 +558,7 @@ def next_stage_state(state):
         nf["cd2"] = 0
         healed.append(nf)
     new = start_battle(state["lang"], state["deck_id"], state["diff"], "gauntlet",
-                       stage=state["stage"] + 1)
+                       stage=state["stage"] + 1, labels=state["labels"])
     new["p"] = healed
     new["pitems"] = list(state["pitems"])
     return new

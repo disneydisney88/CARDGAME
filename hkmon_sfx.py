@@ -169,3 +169,40 @@ def play(name, volume=0.42):
         )
     except Exception:
         pass
+
+
+# ---------------------------------------------------- cantonese voice (TTS) --
+_TTS = st.components.v2.component(
+    "hkmon_tts_speaker",
+    html="<div style='display:none'></div>",
+    js=(
+        "export default function (component) {\n"
+        "  const d = component.data || {}\n"
+        "  if (!d.text || !('speechSynthesis' in window)) return\n"
+        "  try {\n"
+        "    const u = new SpeechSynthesisUtterance(d.text)\n"
+        "    u.lang = 'zh-HK'\n"
+        "    u.rate = 1.05\n"
+        "    const vs = speechSynthesis.getVoices()\n"
+        "    const v = vs.find(v => /zh[-_]HK/i.test(v.lang))\n"
+        "             || vs.find(v => /^zh/i.test(v.lang))\n"
+        "    if (v) u.voice = v\n"
+        "    speechSynthesis.cancel()\n"
+        "    speechSynthesis.speak(u)\n"
+        "  } catch (e) {}\n"
+        "  return {}\n"
+        "}\n"
+    ),
+)
+
+_TTS_SEQ = 0
+
+
+def speak(text):
+    """Speak text aloud (Cantonese when a zh-HK system voice exists)."""
+    global _TTS_SEQ
+    _TTS_SEQ += 1
+    try:
+        _TTS(data={"text": text}, key=f"hkmon-tts-{_TTS_SEQ}")
+    except Exception:
+        pass

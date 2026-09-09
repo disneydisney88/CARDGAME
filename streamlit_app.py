@@ -2,7 +2,8 @@
 """HK-MON 港精靈 — Pokémon-style card game with Hong Kong flavour.
 
 60 original cards (zh-HK / EN / JA / KO), turn-based battles vs AI,
-8-bit sound effects. 100% free, no ads. Run: streamlit run streamlit_app.py
+hotseat 2P + online room PvP, 8-bit sound effects, persistent scoreboard.
+100% free, no ads. Run: streamlit run streamlit_app.py
 """
 import random
 
@@ -11,13 +12,17 @@ import streamlit as st
 import hkmon_data as D
 import hkmon_i18n as I18N
 import hkmon_engine as E
+import hkmon_mahjong as MJ
+import hkmon_rooms as R
+import hkmon_scores as SCORES
 import hkmon_sfx as SFX
 import hkmon_styles as STY
+import hkmon_xiangqi as XQ
 from hkmon_i18n import t
 
 st.set_page_config(page_title="HK-MON 港精靈 Card Game", page_icon="🀄", layout="wide")
 
-PAGES = ["home", "deck", "battle", "library", "help"]
+PAGES = ["home", "deck", "pvp", "battle", "library", "help"]
 LANG_BY_LABEL = {label: code for code, label in I18N.LANGS}
 
 
@@ -29,7 +34,12 @@ def _init_state():
         "battle": None, "wins": 0, "losses": 0, "streak": 0,
         "ui_sfx": [], "surrender_arm": False,
         "featured": random.sample(D.MONSTERS, 3),
-        "lib_types": [], "lib_rarity": "all", "lib_q": "",
+        "lib_types": [], "lib_rarity": "all",
+        # player / pvp
+        "player_name": "", "p2_name": "",
+        "room_code": None, "room_ver": 0, "online_role": None,  # None|host|guest
+        "p2_wants_rematch": False, "guest_asked_rematch": False,
+        "guest_sent": False, "room_gone": False,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -51,25 +61,40 @@ def go(page):
     st.session_state.surrender_arm = False
 
 
+def _app_rerun():
+    try:
+        st.rerun(scope="app")
+    except Exception:
+        pass
+
+
+def _display_name(side):
+    """Human-readable label for a pvp side."""
+    if side == "p":
+        return st.session_state.player_name.strip()[:12] or t(lang(), "p1")
+    return st.session_state.p2_name.strip()[:12] or t(lang(), "p2")
+
+
+def _record(name, win, pvp):
+    if name and name.strip():
+        SCORES.record(name, win, pvp)
+
+
 def _score():
+    """Score bookkeeping for vs-AI modes."""
     b = st.session_state.battle
-    if b and b["over"] and not b.get("scored"):
+    if b and b["over"] and not b.get("scored_ai"):
         if b["win"]:
             st.session_state.wins += 1
             st.session_state.streak += 1
         else:
             st.session_state.losses += 1
             st.session_state.streak = 0
-        b["scored"] = True
+        _record(st.session_state.player_name, b["win"], pvp=False)
+        b["scored_ai"] = True
 
 
 # ------------------------------------------------------------- callbacks ----
-def cb_nav():
-    st.session_state.page = st.session_state.nav
-    st.session_state.surrender_arm = False
-    ui_sfx("click")
-
-
 def cb_lang():
     st.session_state.lang = LANG_BY_LABEL.get(st.session_state.lang_box, "zh")
 
@@ -99,6 +124,7 @@ def cb_surrender_yes():
     if b and not b["over"]:
         b["over"] = True
         b["win"] = False
+        b["winner"] = "e"
         b["pending"] = None
         b["sfx"].append("lose")
         b["log"].append(t(b["lang"], "m_lose"))
@@ -129,6 +155,265 @@ def cb_home():
     ui_sfx("click")
 
 
+# ------------------------------------------------------- pvp callbacks ------
+def cb_pvp_start_hotseat():
+    p1 = _display_name("p")
+    p2 = _display_name("e")
+    st.session_state.battle = E.start_battle(
+        st.session_state.lang, st.session_state.pv_p1_deck,
+        mode="hotseat", labels={"p": p1, "e": p2},
+        enemy_deck_id=st.session_state.pv_p2_deck)
+    st.session_state.page = "battle"
+    ui_sfx("switch")
+
+
+def cb_online_create():
+    st.session_state.room_gone = False
+    code = R.create_room(st.session_state.lang, st.session_state.on_p1_deck)
+    st.session_state.room_code = code
+    st.session_state.online_role = "host"
+    st.session_state.side = "p"
+    ui_sfx("click")
+
+
+def cb_online_join():
+    code = st.session_state.get("join_code_input", "").strip().upper()
+    st.session_state.room_gone = False
+    if len(code) < 3:
+        st.session_state.join_error = True
+        return
+    ok = R.join_room(code, st.session_state.on_p2_deck,
+                     name=st.session_state.player_name.strip()[:12])
+    st.session_state.join_error = not ok
+    if ok:
+        st.session_state.room_code = code
+        st.session_state.online_role = "guest"
+        st.session_state.side = "e"
+        ui_sfx("click")
+
+
+def cb_host_start():
+    code = st.session_state.room_code
+    room = R.read_room(code)
+    if not room or not room.get("p2"):
+        return
+    p2_label = (room["p2"].get("name") or "").strip() or _display_name("e")
+    b = E.start_battle(
+        st.session_state.lang, st.session_state.on_p1_deck,
+        mode="online", labels={"p": _display_name("p"), "e": p2_label},
+        enemy_deck_id=room["p2"]["deck"])
+    st.session_state.battle = b
+    R.clear_rematch(code)
+    st.session_state.p2_wants_rematch = False
+    R.sync_state(code, b, status="playing")
+    st.session_state.room_ver = R.read_state(code)[1]
+    st.session_state.page = "battle"
+    ui_sfx("switch")
+
+
+def _host_sync(b):
+    """Record host score when finished, then publish state."""
+    code = st.session_state.room_code
+    if b["over"] and not b.get("scored_host"):
+        _record(st.session_state.player_name, b.get("winner") == "p", pvp=True)
+        b["scored_host"] = True
+    R.sync_state(code, b)
+    st.session_state.room_ver = R.read_state(code)[1]
+
+
+def cb_pvp_act(kind, arg=None, side="p"):
+    """Hotseat / online-host action dispatch."""
+    b = st.session_state.battle
+    if b is None or b["over"]:
+        return
+    role = st.session_state.get("online_role")
+    if role == "guest":
+        R.post_request(st.session_state.room_code, "e", kind, arg)
+        st.session_state.guest_sent = True
+        return
+    if role == "host":
+        side = "p"
+    if b.get("to_act") != side and b.get("pending") != side:
+        return
+    E.pvp_action(b, side, kind, arg)
+    if role == "host":
+        _host_sync(b)
+
+
+def cb_pvp_surrender(side="p"):
+    b = st.session_state.battle
+    if b is None or b["over"]:
+        return
+    role = st.session_state.get("online_role")
+    if role == "guest":
+        R.post_request(st.session_state.room_code, "e", "surrender")
+        return
+    if role == "host":
+        side = "p"
+    E.pvp_surrender(b, side)
+    if role == "host":
+        _host_sync(b)
+
+
+def cb_rematch_hotseat():
+    st.session_state.battle = E.start_battle(
+        st.session_state.lang, st.session_state.battle["deck_id"],
+        mode="hotseat", labels=st.session_state.battle["labels"],
+        enemy_deck_id=st.session_state.battle["enemy_deck_id"])
+    st.session_state.page = "battle"
+    ui_sfx("switch")
+
+
+def cb_host_rematch():
+    code = st.session_state.room_code
+    b = st.session_state.battle
+    nb = E.start_battle(
+        st.session_state.lang, b["deck_id"], mode="online",
+        labels=b["labels"], enemy_deck_id=b["enemy_deck_id"])
+    st.session_state.battle = nb
+    R.clear_rematch(code)
+    st.session_state.p2_wants_rematch = False
+    R.sync_state(code, nb, status="playing")
+    st.session_state.room_ver = R.read_state(code)[1]
+    ui_sfx("switch")
+
+
+def cb_guest_rematch():
+    R.post_request(st.session_state.room_code, "e", "rematch")
+    st.session_state.guest_asked_rematch = True
+
+
+def cb_back_room():
+    st.session_state.page = "pvp"
+    ui_sfx("click")
+
+
+# ------------------------------------------------------- xiangqi callback ---
+def _xq_ai_move():
+    b = st.session_state.xq_board
+    depth = 3 if st.session_state.xq_mode == "hard" else 2
+    jitter = 0 if st.session_state.xq_mode == "hard" else 6
+    mv = XQ.best_move(b, "b", depth=depth, jitter=jitter)
+    if mv:
+        st.session_state.xq_hist.append((list(b), "b"))
+        cap = XQ.apply_move(b, mv)
+        if cap:
+            st.session_state.xq_voice.append(f"食{XQ.CHAR[cap]}")
+        st.session_state.xq_turn = "r"
+        if not XQ.legal_moves(b, "r"):
+            st.session_state.xq_over = "b"
+            st.session_state.xq_voice.append("絕殺")
+            st.session_state.xq_voice.append("黑方勝")
+        elif XQ.in_check(b, "r"):
+            st.session_state.xq_voice.append("將軍")
+
+
+def cb_xq_click(idx):
+    b = st.session_state.xq_board
+    if b is None or st.session_state.xq_over:
+        return
+    turn = st.session_state.xq_turn
+    mode = st.session_state.xq_mode
+    if mode != "p2" and turn != "r":
+        return
+    sel = st.session_state.xq_sel
+    legal = XQ.legal_moves(b, turn)
+    if sel is not None and (sel, idx) in legal:
+        st.session_state.xq_hist.append((list(b), turn))
+        cap = XQ.apply_move(b, (sel, idx))
+        st.session_state.xq_sel = None
+        if cap:
+            st.session_state.xq_voice.append(f"食{XQ.CHAR[cap]}")
+        opp = "b" if turn == "r" else "r"
+        st.session_state.xq_turn = opp
+        if not XQ.legal_moves(b, opp):
+            st.session_state.xq_over = turn
+            st.session_state.xq_voice.append("絕殺")
+            st.session_state.xq_voice.append("紅方勝" if turn == "r" else "黑方勝")
+        elif XQ.in_check(b, opp):
+            st.session_state.xq_voice.append("將軍")
+        elif mode != "p2" and opp == "b":
+            _xq_ai_move()
+    elif b[idx] and b[idx][0] == turn:
+        st.session_state.xq_sel = idx
+    else:
+        st.session_state.xq_sel = None
+
+
+# ----------------------------------------------------- polling fragments ----
+@st.fragment(run_every="2s")
+def frag_host_wait():
+    code = st.session_state.get("room_code")
+    if not code or st.session_state.get("online_role") != "host":
+        return
+    if st.session_state.get("page") != "pvp":
+        return
+    room = R.read_room(code)
+    if not room:
+        if not st.session_state.get("room_gone"):
+            st.session_state.room_gone = True
+            _app_rerun()
+        return
+    joined = room.get("p2") is not None
+    if joined != st.session_state.get("_p2_joined_prev", False):
+        st.session_state._p2_joined_prev = joined
+        st.session_state.room_snapshot = room
+        _app_rerun()
+    st.session_state.room_snapshot = room
+
+
+@st.fragment(run_every="2s")
+def frag_guest():
+    code = st.session_state.get("room_code")
+    if not code or st.session_state.get("online_role") != "guest":
+        return
+    state, ver = R.read_state(code)
+    if state is None:
+        return
+    if st.session_state.get("page") == "battle":
+        if ver != st.session_state.get("room_ver"):
+            st.session_state.battle = state
+            st.session_state.room_ver = ver
+            st.session_state.guest_sent = False
+            _app_rerun()
+    elif st.session_state.get("page") == "pvp":
+        room = R.read_room(code)
+        if room and room.get("status") == "playing" and state:
+            st.session_state.battle = state
+            st.session_state.room_ver = ver
+            st.session_state.page = "battle"
+            _app_rerun()
+
+
+@st.fragment(run_every="2s")
+def frag_host_battle():
+    code = st.session_state.get("room_code")
+    b = st.session_state.get("battle")
+    if (not code or st.session_state.get("online_role") != "host"
+            or st.session_state.get("page") != "battle" or not b):
+        return
+    room = R.read_room(code)
+    if room and room.get("rematch_p2") and not st.session_state.get("p2_wants_rematch"):
+        st.session_state.p2_wants_rematch = True
+        _app_rerun()
+    reqs = R.consume_requests(code)
+    applied = False
+    for r in reqs:
+        if r["kind"] == "rematch":
+            continue
+        if b["over"]:
+            continue
+        if r["kind"] == "surrender":
+            E.pvp_surrender(b, "e")
+        else:
+            E.pvp_action(b, "e", r["kind"], r.get("arg"))
+        applied = True
+    if applied:
+        st.session_state.battle = b
+        _host_sync(b)
+        _app_rerun()
+
+
 # ---------------------------------------------------------------- sidebar ---
 with st.sidebar:
     st.markdown(
@@ -150,28 +435,45 @@ with st.sidebar:
 
     st.divider()
     labels = {"home": t(lang(), "nav_home"), "deck": t(lang(), "nav_deck"),
+              "pvp": t(lang(), "nav_pvp"), "games": t(lang(), "nav_games"),
               "library": t(lang(), "nav_lib"), "help": t(lang(), "nav_help")}
-    nav_opts = ["home", "deck", "library", "help"]
+    nav_opts = ["home", "deck", "pvp", "games", "library", "help"]
     b_now = st.session_state.battle
     if b_now is not None and not b_now.get("over") and st.session_state.page == "battle":
-        nav_opts.insert(1, "battle")
-        labels["battle"] = t(lang(), "nav_battle_active")
-    nav_choice = st.radio("nav", options=nav_opts,
-                          index=nav_opts.index(st.session_state.page)
-                          if st.session_state.page in nav_opts else 0,
-                          format_func=lambda p: labels.get(p, p),
-                          label_visibility="collapsed")
-    if nav_choice != st.session_state.page:
-        st.session_state.page = nav_choice
-        st.session_state.surrender_arm = False
-        ui_sfx("click")
-        st.rerun()
+        nav_opts.insert(2, "battle")
+        labels["battle"] = "🔴 " + t(lang(), "nav_battle_active")
+    for p in nav_opts:
+        mark = "▸ " if p == st.session_state.page else "　"
+        if st.button(mark + labels.get(p, p), key=f"nav_{p}"):
+            if st.session_state.page != p:
+                st.session_state.page = p
+                st.session_state.surrender_arm = False
+                ui_sfx("click")
+            st.rerun()
 
     st.divider()
+    st.text_input(t(lang(), "nickname"), max_chars=12, key="player_name_input")
+    st.session_state.player_name = st.session_state.get("player_name_input", "").strip()
+    st.caption(t(lang(), "nickname_hint"))
+
     w, l, s = st.session_state.wins, st.session_state.losses, st.session_state.streak
     st.markdown(f"**{t(lang(),'record')}**　`{w} {t(lang(),'wins')} · {l} {t(lang(),'losses')}`"
                 f"　🔥 {s} {t(lang(),'streak')}")
+    my = SCORES.get(st.session_state.player_name) if st.session_state.player_name else None
+    if my:
+        st.markdown(f"💾 `{my['wins']}{t(lang(),'wins')}·{my['losses']}{t(lang(),'losses')}`"
+                    f"　🏆{my['best']}　🤝{my['pvp_wins']}")
 
+    with st.expander(t(lang(), "leaderboard")):
+        rows = SCORES.top(8)
+        if not rows:
+            st.caption(t(lang(), "no_scores"))
+        for i, r in enumerate(rows, 1):
+            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+            st.markdown(f"{medal} **{r['name']}**　`{r['wins']}{t(lang(),'wins')}`"
+                        f"　🏆{r['best']}　🎮{r['games']}")
+
+    st.divider()
     if st.button(t(lang(), "reset")):
         st.session_state.battle = None
         go("home")
@@ -195,16 +497,20 @@ if st.session_state.page == "home":
           <span class="hk-badge">🔊 8-BIT SFX</span>
           <span class="hk-badge">🈯 繁中 / EN / 日本語 / 한국어</span>
           <span class="hk-badge">🀄 60 CARDS</span>
+          <span class="hk-badge">🤝 2P</span>
         </div></div>''', unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     if c1.button(t(lang(), "cta_start"), type="primary"):
         go("deck")
         st.rerun()
-    if c2.button(t(lang(), "cta_lib")):
+    if c2.button(t(lang(), "nav_pvp")):
+        go("pvp")
+        st.rerun()
+    if c3.button(t(lang(), "cta_lib")):
         go("library")
         st.rerun()
-    if c3.button(t(lang(), "cta_help")):
+    if c4.button(t(lang(), "cta_help")):
         go("help")
         st.rerun()
 
@@ -268,6 +574,86 @@ elif st.session_state.page == "deck":
         cb_start_battle()
         st.rerun()
 
+# ------------------------------------------------------------------- pvp ----
+elif st.session_state.page == "pvp":
+    st.markdown(f'<span class="street-sign">{t(lang(),"pvp_title")}</span>', unsafe_allow_html=True)
+
+    sub = st.segmented_control("pvp_mode", ["hotseat", "online"],
+                               format_func=lambda m: t(lang(), "pvp_hotseat" if m == "hotseat" else "pvp_online"),
+                               selection_mode="single", default="hotseat", key="pvp_sub")
+
+    deck_ids = [d["id"] for d in D.CHOOSABLE_DECKS]
+    deck_label = lambda did: f'{D.DECK[did]["emoji"]} {D.DECK[did]["name"][lang()]}'
+
+    if sub == "hotseat":
+        st.caption(t(lang(), "hotseat_desc"))
+        st.text_input(f'👤 {t(lang(),"p2_pick")} — {t(lang(),"p2")}', max_chars=12,
+                      key="p2_name_input")
+        st.session_state.p2_name = st.session_state.get("p2_name_input", "").strip()
+
+        st.markdown(f"**{t(lang(),'p1_pick')}**")
+        s1 = st.pills("p1_deck", deck_ids, format_func=deck_label,
+                      selection_mode="single", default="d1", key="pv_p1_deck")
+        st.markdown(f"**{t(lang(),'p2_pick')}**")
+        s2 = st.pills("p2_deck", deck_ids, format_func=deck_label,
+                      selection_mode="single", default="d3", key="pv_p2_deck")
+        st.session_state.pv_p1_deck = (s1[0] if isinstance(s1, list) else s1) or "d1"
+        st.session_state.pv_p2_deck = (s2[0] if isinstance(s2, list) else s2) or "d3"
+
+        if st.button(f"⚔️ {t(lang(),'pvp_start')}", type="primary"):
+            cb_pvp_start_hotseat()
+            st.rerun()
+    else:
+        st.caption(t(lang(), "online_desc"))
+        st.info(t(lang(), "online_note"))
+
+        if st.session_state.get("room_code"):
+            code = st.session_state.room_code
+            room = R.read_room(code)
+            st.markdown(f"### {t(lang(),'room_code_label')}: ` {code} `")
+            st.caption(t(lang(), "share_link"))
+
+            if st.session_state.online_role == "host":
+                frag_host_wait()
+                p2 = (room or {}).get("p2")
+                if not p2:
+                    st.warning(t(lang(), "waiting_p2"))
+                else:
+                    st.success(t(lang(), "p2_joined"))
+                    who = (p2.get("name") or "").strip()
+                    if who:
+                        st.caption(f"👤 {who}")
+                    if st.button(t(lang(), "host_start"), type="primary"):
+                        cb_host_start()
+                        st.rerun()
+            else:
+                st.info(t(lang(), "waiting_host"))
+                frag_guest()
+                if st.button(t(lang(), "back_to_room")):
+                    cb_back_room()
+                    st.rerun()
+        else:
+            a, b_ = st.columns(2)
+            with a:
+                st.markdown(f"**{t(lang(),'online_create')}**")
+                cs = st.pills("on_p1_deck", deck_ids, format_func=deck_label,
+                              selection_mode="single", default="d1", key="on_p1_deck")
+                st.session_state.on_p1_deck = (cs[0] if isinstance(cs, list) else cs) or "d1"
+                if st.button(t(lang(), "online_create"), type="primary"):
+                    cb_online_create()
+                    st.rerun()
+            with b_:
+                st.markdown(f"**{t(lang(),'online_join')}**")
+                js = st.pills("on_p2_deck", deck_ids, format_func=deck_label,
+                              selection_mode="single", default="d3", key="on_p2_deck")
+                st.session_state.on_p2_deck = (js[0] if isinstance(js, list) else js) or "d3"
+                st.text_input(t(lang(), "enter_code"), max_chars=4, key="join_code_input")
+                if st.session_state.get("join_error"):
+                    st.error(t(lang(), "code_not_found"))
+                if st.button(t(lang(), "join")):
+                    cb_online_join()
+                    st.rerun()
+
 # ---------------------------------------------------------------- battle ----
 elif st.session_state.page == "battle":
     b = st.session_state.battle
@@ -275,151 +661,542 @@ elif st.session_state.page == "battle":
         st.session_state.page = "deck"
         st.rerun()
 
-    L = b["lang"]
-    p = E.active(b, "p")
-    e = E.active(b, "e")
-    pcard, ecard = D.MON[p["id"]], D.MON[e["id"]]
-    hit = b.get("hit")
+    if b.get("mode") in ("hotseat", "online"):
+        # ================= PVP BATTLE =================
+        L = b["lang"]
+        role = st.session_state.get("online_role")
+        hit = b.get("hit")
+        p = E.active(b, "p")
+        e = E.active(b, "e")
+        pcard, ecard = D.MON[p["id"]], D.MON[e["id"]]
 
-    # header: stage dots / turn / surrender
-    h1, h2, h3 = st.columns([1.1, 1.2, 0.7])
-    with h1:
-        if b["mode"] == "gauntlet":
-            dots = ""
-            for s in (1, 2, 3):
-                cls = "done" if s < b["stage"] else ("now" if s == b["stage"] else "")
-                dots += f'<span class="stage-dot {cls}"></span>'
-            st.markdown(dots + f' <b>{t(L,"stage",n=b["stage"])}</b>', unsafe_allow_html=True)
-    with h2:
-        st.markdown(f"<div style='text-align:center'><b>{t(L,'turn')} {b['turn']}</b></div>",
-                    unsafe_allow_html=True)
-    with h3:
-        if not b["over"] and not b["pending"]:
-            if st.button(t(L, "surrender")):
-                cb_surrender()
+        h1, h2 = st.columns([2, 1])
+        with h1:
+            if b["mode"] == "online":
+                st.markdown(f"🌐 ` {st.session_state.get('room_code','')} `　"
+                            f"{t(L,'you_are')} **{b['labels']['e' if role=='guest' else 'p']}**",
+                            unsafe_allow_html=True)
+        with h2:
+            if not b["over"]:
+                sur_side = b["pending"] or b["to_act"]
+                if st.button(t(L, "surrender"), key=f"sur_{sur_side}"):
+                    if st.session_state.get("surrender_arm_side") == sur_side:
+                        cb_pvp_surrender(sur_side)
+                    else:
+                        st.session_state.surrender_arm_side = sur_side
+                        st.session_state.surrender_arm = True
+                    st.rerun()
+        if st.session_state.get("surrender_arm") and not b["over"]:
+            st.warning(t(L, "surrender_again"))
+            sur_side = b["pending"] or b["to_act"]
+            if st.button("⚠️ " + t(L, "surrender"), key="sur_confirm_pvp"):
+                cb_pvp_surrender(sur_side)
                 st.rerun()
-    if st.session_state.surrender_arm and not b["over"]:
-        st.warning(t(L, "surrender_again"))
-        if st.button("⚠️ " + t(L, "surrender")):
-            cb_surrender_yes()
-            st.rerun()
 
-    if b["over"]:
-        # ---------------- result ----------------
-        st.markdown("---")
-        if b["win"]:
-            st.markdown(f"<h1 style='text-align:center;color:#ffd23f;"
-                        f"text-shadow:0 0 22px #ff8800;'>{t(L,'result_title_win')}</h1>",
-                        unsafe_allow_html=True)
-            st.markdown(f"<p style='text-align:center;font-size:1.1rem;'>{t(L,'m_win')}</p>",
-                        unsafe_allow_html=True)
-            st.balloons()
-        else:
-            st.markdown(f"<h1 style='text-align:center;color:#8a93b5;'>{t(L,'result_title_lose')}</h1>",
-                        unsafe_allow_html=True)
-            st.markdown(f"<p style='text-align:center;font-size:1.1rem;'>{t(L,'m_lose')}</p>",
-                        unsafe_allow_html=True)
-            st.snow()
-        r1, r2, r3 = st.columns(3)
-        if b["mode"] == "gauntlet" and b["win"] and b["stage"] < 3:
-            if r1.button(t(L, "btn_next"), type="primary"):
-                cb_next_stage()
-                st.rerun()
-        if b["mode"] == "gauntlet" and b["win"] and b["stage"] == 3:
-            st.markdown(f"<h2 style='text-align:center;'>🏆 {t(L,'m_champion')}</h2>",
-                        unsafe_allow_html=True)
-        if r2.button(t(L, "btn_rematch")):
-            cb_rematch()
-            st.rerun()
-        if r3.button(t(L, "btn_home")):
-            cb_home()
-            st.rerun()
-    else:
-        # ---------------- board ----------------
+        # turn banner
+        if not b["over"]:
+            cur = b["pending"] or b["to_act"]
+            lab = b["labels"][cur]
+            color = "#7ef0a2" if cur == "p" else "#9fc7ff"
+            st.markdown(
+                f"<div style='text-align:center;font-size:1.15rem;font-weight:900;"
+                f"color:{color};text-shadow:0 0 10px {color};'>⏳ {t(L,'turn_of',n=lab)}</div>",
+                unsafe_allow_html=True)
+            if b["pending"] == cur:
+                st.info(t(L, "replace_title"))
+
         b1, bmid, b2 = st.columns([1.15, 0.5, 1.15])
         with b1:
-            you = t(L, "you")
-            st.markdown(f"<div style='text-align:center;font-weight:900;color:#7ef0a2;'>🟢 {you}</div>",
+            st.markdown(f"<div style='text-align:center;font-weight:900;color:#7ef0a2;'>🟢 {b['labels']['p']}</div>",
                         unsafe_allow_html=True)
             st.markdown(STY.card_html(pcard, L, shake=hit in ("p", "pe")), unsafe_allow_html=True)
             st.markdown(STY.hp_bar(p, L, pcard["name"][L]), unsafe_allow_html=True)
             st.markdown(f"<div style='text-align:center'><small>{t(L,'bench')}:</small><br>"
                         + STY.bench_chips_html(b["p"], b["pa"], L) + "</div>", unsafe_allow_html=True)
         with bmid:
-            st.markdown(f'<div class="vs-badge" style="margin-top:90px;">VS</div>', unsafe_allow_html=True)
+            st.markdown('<div class="vs-badge" style="margin-top:90px;">VS</div>', unsafe_allow_html=True)
         with b2:
-            foe = t(L, "enemy")
-            deck_name = D.DECK[b["enemy_deck_id"]]["name"][L]
-            st.markdown(f"<div style='text-align:center;font-weight:900;color:#ff9f9f;'>🔴 {foe} · {deck_name}</div>",
+            st.markdown(f"<div style='text-align:center;font-weight:900;color:#9fc7ff;'>🔵 {b['labels']['e']}</div>",
                         unsafe_allow_html=True)
             st.markdown(STY.card_html(ecard, L, shake=hit in ("e", "ep")), unsafe_allow_html=True)
             st.markdown(STY.hp_bar(e, L, ecard["name"][L]), unsafe_allow_html=True)
             st.markdown(f"<div style='text-align:center'><small>{t(L,'bench')}:</small><br>"
                         + STY.bench_chips_html(b["e"], b["ea"], L) + "</div>", unsafe_allow_html=True)
 
-        # ---------------- actions ----------------
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.container(border=True):
-            if b["pending"] == "switch":
-                st.error(t(L, "replace_title"))
-                cands = [i for i, f in enumerate(b["p"]) if f["hp"] > 0]
-                opts = [f'{D.MON[b["p"][i]["id"]]["emoji"]} {D.MON[b["p"][i]["id"]]["name"][L]} '
-                        f'({b["p"][i]["hp"]}/{b["p"][i]["mhp"]})' for i in cands]
-                sel = st.radio("replace", opts, index=0, key="rep_sel", label_visibility="collapsed")
-                idx = cands[opts.index(sel)] if sel in opts else cands[0]
-                if st.button(f"✅ {t(L,'confirm')}", type="primary"):
-                    cb_action("replace", idx)
+        # -------- action panel --------
+        if not b["over"]:
+            cur = b["pending"] or b["to_act"]
+            is_guest = (role == "guest")
+            my_turn = (cur == ("e" if is_guest else "p")) or (role is None)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                if is_guest and st.session_state.get("guest_sent"):
+                    st.info(t(L, "sync_wait"))
+                if not my_turn:
+                    st.caption(t(L, "not_your_turn"))
+                elif b["pending"] == cur:
+                    side_list = b[cur]
+                    cands = [i for i, f_ in enumerate(side_list) if f_["hp"] > 0]
+                    opts = [f'{D.MON[side_list[i]["id"]]["emoji"]} {D.MON[side_list[i]["id"]]["name"][L]} '
+                            f'({side_list[i]["hp"]}/{side_list[i]["mhp"]})' for i in cands]
+                    sel = st.radio("pvp_replace", opts, index=0, key="rep_sel_pvp",
+                                   label_visibility="collapsed")
+                    idx = cands[opts.index(sel)] if sel in opts else cands[0]
+                    if st.button(f"✅ {t(L,'confirm')}", type="primary"):
+                        cb_pvp_act("replace", idx, side=cur)
+                        st.rerun()
+                else:
+                    f_ = D.MON[E.active(b, cur)["id"]]
+                    fa = E.active(b, cur)
+                    m1 = D.MOVE1[f_["type"]][b[cur].index(fa)]
+                    m2 = f_["move2"]
+                    mult1 = D.eff_mult(f_["type"], D.MON[E.active(b, "e" if cur == "p" else "p")["id"]]["type"])
+                    tag1 = " 🔥×1.5" if mult1 > 1 else (" 🛡×0.75" if mult1 < 1 else "")
+                    cd = fa["cd2"]
+                    a1, a2, a3, a4 = st.columns([1.1, 1.1, 1, 1])
+                    if a1.button(f"⚔️ {m1['name'][L]} {m1['power']}{tag1}", type="primary",
+                                 key=f"pvp_a1_{cur}"):
+                        cb_pvp_act("move1", side=cur)
+                        st.rerun()
+                    if a2.button(f"🌟 {m2['name'][L]} {m2['power']}"
+                                 + (f"　⏳ {t(L,'cooldown',n=cd)}" if cd else ""),
+                                 disabled=cd > 0, key=f"pvp_a2_{cur}"):
+                        cb_pvp_act("move2", side=cur)
+                        st.rerun()
+                    with a3.expander(t(L, "switch_panel")):
+                        bench = [i for i, x in enumerate(b[cur]) if x["hp"] > 0 and i != b["pa" if cur == "p" else "ea"]]
+                        if not bench:
+                            st.caption(t(L, "empty_bench"))
+                        else:
+                            bopts = [f'{D.MON[b[cur][i]["id"]]["emoji"]} {D.MON[b[cur][i]["id"]]["name"][L]} '
+                                     f'({b[cur][i]["hp"]}/{b[cur][i]["mhp"]})' for i in bench]
+                            bsel = st.radio("pvp_sw", bopts, index=0, key=f"sw_sel_{cur}",
+                                            label_visibility="collapsed")
+                            bidx = bench[bopts.index(bsel)] if bsel in bopts else bench[0]
+                            if st.button(f"✅ {t(L,'go_switch')}", key=f"sw_go_{cur}"):
+                                cb_pvp_act("switch", bidx, side=cur)
+                                st.rerun()
+                    with a4.expander(t(L, "items_panel")):
+                        myitems = b["pitems" if cur == "p" else "eitems"]
+                        if not myitems:
+                            st.caption(t(L, "empty_bench"))
+                        else:
+                            iopts = [f'{D.ITEM[iid]["emoji"]} {D.ITEM[iid]["name"][L]}' for iid in myitems]
+                            isel = st.radio("pvp_it", iopts, index=0, key=f"it_sel_{cur}",
+                                            label_visibility="collapsed")
+                            iid = myitems[iopts.index(isel)] if isel in iopts else myitems[0]
+                            if st.button(f"🎒 {t(L,'use')}", key=f"it_go_{cur}"):
+                                cb_pvp_act("item", iid, side=cur)
+                                st.rerun()
+
+        # -------- result --------
+        if b["over"]:
+            winner_label = b["labels"].get(b.get("winner"), "")
+            if b["mode"] == "hotseat" and not b.get("scored_local"):
+                _record(st.session_state.player_name, b.get("winner") == "p", pvp=True)
+                _record(st.session_state.p2_name, b.get("winner") == "e", pvp=True)
+                b["scored_local"] = True
+            if b["mode"] == "online" and role == "guest" and not b.get("scored_guest"):
+                _record(st.session_state.player_name, b.get("winner") == "e", pvp=True)
+                b["scored_guest"] = True
+
+            st.markdown(f"<h1 style='text-align:center;color:#ffd23f;"
+                        f"text-shadow:0 0 22px #ff8800;'>🏆 {winner_label}</h1>",
+                        unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:center;font-size:1.1rem;'>"
+                        f"{t(L,'m_win_pvp',n=winner_label)}</p>", unsafe_allow_html=True)
+            st.balloons()
+
+            r1, r2, r3 = st.columns(3)
+            if b["mode"] == "hotseat":
+                if r1.button(t(L, "btn_rematch"), type="primary"):
+                    cb_rematch_hotseat()
+                    st.rerun()
+            elif role == "host":
+                if st.session_state.get("p2_wants_rematch"):
+                    st.info(t(L, "want_rematch"))
+                if r1.button(t(L, "btn_rematch"), type="primary"):
+                    cb_host_rematch()
                     st.rerun()
             else:
-                m1 = D.MOVE1[pcard["type"]][b["p"].index(p)]
-                m2 = pcard["move2"]
-                mult1 = D.eff_mult(pcard["type"], ecard["type"])
-                tag1 = " 🔥×1.5" if mult1 > 1 else (" 🛡×0.75" if mult1 < 1 else "")
-                a1, a2, a3, a4 = st.columns([1.1, 1.1, 1, 1])
-                if a1.button(f"⚔️ {t(L,'atk1')}: {m1['name'][L]} {m1['power']}{tag1}", type="primary"):
-                    cb_action("move1")
+                if st.session_state.get("guest_asked_rematch"):
+                    st.caption(t(L, "wait_rematch"))
+                elif r1.button(t(L, "ask_rematch")):
+                    cb_guest_rematch()
                     st.rerun()
-                cd = p["cd2"]
-                if a2.button(f"🌟 {t(L,'atk2')}: {m2['name'][L]} {m2['power']}"
-                             + (f"　⏳ {t(L,'cooldown',n=cd)}" if cd else ""), disabled=cd > 0):
-                    cb_action("move2")
-                    st.rerun()
-                with a3.expander(t(L, "switch_panel")):
-                    bench = [i for i, f in enumerate(b["p"]) if f["hp"] > 0 and i != b["pa"]]
-                    if not bench:
-                        st.caption(t(L, "empty_bench"))
-                    else:
-                        bopts = [f'{D.MON[b["p"][i]["id"]]["emoji"]} {D.MON[b["p"][i]["id"]]["name"][L]} '
-                                 f'({b["p"][i]["hp"]}/{b["p"][i]["mhp"]})' for i in bench]
-                        bsel = st.radio("switch_to", bopts, index=0, key="sw_sel",
-                                        label_visibility="collapsed")
-                        bidx = bench[bopts.index(bsel)] if bsel in bopts else bench[0]
-                        if st.button(f"✅ {t(L, 'go_switch')}", key="sw_go"):
-                            cb_action("switch", bidx)
-                            st.rerun()
-                with a4.expander(t(L, "items_panel")):
-                    if not b["pitems"]:
-                        st.caption(t(L, "empty_bench"))
-                    else:
-                        iopts = [f'{D.ITEM[iid]["emoji"]} {D.ITEM[iid]["name"][L]}' for iid in b["pitems"]]
-                        isel = st.radio("item_sel", iopts, index=0, key="it_sel",
-                                        label_visibility="collapsed")
-                        iid = b["pitems"][iopts.index(isel)] if isel in iopts else b["pitems"][0]
-                        if st.button(f"🎒 {t(L,'use')}", key="it_go"):
-                            cb_action("item", iid)
-                            st.rerun()
+            if r2.button(t(L, "btn_home")):
+                cb_home()
+                st.rerun()
 
-        # ---------------- log ----------------
-        with st.expander(t(L, "battle_log"), expanded=True):
-            for line in b["log"][-40:]:
+        # battle page polling for online
+        if b["mode"] == "online":
+            if role == "host":
+                frag_host_battle()
+            else:
+                frag_guest()
+
+        if st.session_state.sound:
+            for sname in b["sfx"]:
+                SFX.play(sname)
+        b["sfx"] = []
+        b["hit"] = None
+
+    else:
+        # ================= VS AI BATTLE =================
+        L = b["lang"]
+        p = E.active(b, "p")
+        e = E.active(b, "e")
+        pcard, ecard = D.MON[p["id"]], D.MON[e["id"]]
+        hit = b.get("hit")
+
+        h1, h2, h3 = st.columns([1.1, 1.2, 0.7])
+        with h1:
+            if b["mode"] == "gauntlet":
+                dots = ""
+                for s in (1, 2, 3):
+                    cls = "done" if s < b["stage"] else ("now" if s == b["stage"] else "")
+                    dots += f'<span class="stage-dot {cls}"></span>'
+                st.markdown(dots + f' <b>{t(L,"stage",n=b["stage"])}</b>', unsafe_allow_html=True)
+        with h2:
+            st.markdown(f"<div style='text-align:center'><b>{t(L,'turn')} {b['turn']}</b></div>",
+                        unsafe_allow_html=True)
+        with h3:
+            if not b["over"] and not b["pending"]:
+                if st.button(t(L, "surrender")):
+                    cb_surrender()
+                    st.rerun()
+        if st.session_state.surrender_arm and not b["over"]:
+            st.warning(t(L, "surrender_again"))
+            if st.button("⚠️ " + t(L, "surrender"), key="sur_confirm"):
+                cb_surrender_yes()
+                st.rerun()
+
+        if b["over"]:
+            st.markdown("---")
+            if b["win"]:
+                st.markdown(f"<h1 style='text-align:center;color:#ffd23f;"
+                            f"text-shadow:0 0 22px #ff8800;'>{t(L,'result_title_win')}</h1>",
+                            unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align:center;font-size:1.1rem;'>{t(L,'m_win')}</p>",
+                            unsafe_allow_html=True)
+                st.balloons()
+            else:
+                st.markdown(f"<h1 style='text-align:center;color:#8a93b5;'>{t(L,'result_title_lose')}</h1>",
+                            unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align:center;font-size:1.1rem;'>{t(L,'m_lose')}</p>",
+                            unsafe_allow_html=True)
+                st.snow()
+            r1, r2, r3 = st.columns(3)
+            if b["mode"] == "gauntlet" and b["win"] and b["stage"] < 3:
+                if r1.button(t(L, "btn_next"), type="primary"):
+                    cb_next_stage()
+                    st.rerun()
+            if b["mode"] == "gauntlet" and b["win"] and b["stage"] == 3:
+                st.markdown(f"<h2 style='text-align:center;'>🏆 {t(L,'m_champion')}</h2>",
+                            unsafe_allow_html=True)
+            if r2.button(t(L, "btn_rematch")):
+                cb_rematch()
+                st.rerun()
+            if r3.button(t(L, "btn_home")):
+                cb_home()
+                st.rerun()
+        else:
+            b1, bmid, b2 = st.columns([1.15, 0.5, 1.15])
+            with b1:
+                you = t(L, "you")
+                st.markdown(f"<div style='text-align:center;font-weight:900;color:#7ef0a2;'>🟢 {you}</div>",
+                            unsafe_allow_html=True)
+                st.markdown(STY.card_html(pcard, L, shake=hit in ("p", "pe")), unsafe_allow_html=True)
+                st.markdown(STY.hp_bar(p, L, pcard["name"][L]), unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center'><small>{t(L,'bench')}:</small><br>"
+                            + STY.bench_chips_html(b["p"], b["pa"], L) + "</div>", unsafe_allow_html=True)
+            with bmid:
+                st.markdown('<div class="vs-badge" style="margin-top:90px;">VS</div>', unsafe_allow_html=True)
+            with b2:
+                foe = t(L, "enemy")
+                deck_name = D.DECK[b["enemy_deck_id"]]["name"][L]
+                st.markdown(f"<div style='text-align:center;font-weight:900;color:#ff9f9f;'>🔴 {foe} · {deck_name}</div>",
+                            unsafe_allow_html=True)
+                st.markdown(STY.card_html(ecard, L, shake=hit in ("e", "ep")), unsafe_allow_html=True)
+                st.markdown(STY.hp_bar(e, L, ecard["name"][L]), unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center'><small>{t(L,'bench')}:</small><br>"
+                            + STY.bench_chips_html(b["e"], b["ea"], L) + "</div>", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                if b["pending"]:
+                    st.error(t(L, "replace_title"))
+                    cands = [i for i, f_ in enumerate(b["p"]) if f_["hp"] > 0]
+                    opts = [f'{D.MON[b["p"][i]["id"]]["emoji"]} {D.MON[b["p"][i]["id"]]["name"][L]} '
+                            f'({b["p"][i]["hp"]}/{b["p"][i]["mhp"]})' for i in cands]
+                    sel = st.radio("replace", opts, index=0, key="rep_sel", label_visibility="collapsed")
+                    idx = cands[opts.index(sel)] if sel in opts else cands[0]
+                    if st.button(f"✅ {t(L,'confirm')}", type="primary"):
+                        cb_action("replace", idx)
+                        st.rerun()
+                else:
+                    m1 = D.MOVE1[pcard["type"]][b["p"].index(p)]
+                    m2 = pcard["move2"]
+                    mult1 = D.eff_mult(pcard["type"], ecard["type"])
+                    tag1 = " 🔥×1.5" if mult1 > 1 else (" 🛡×0.75" if mult1 < 1 else "")
+                    a1, a2, a3, a4 = st.columns([1.1, 1.1, 1, 1])
+                    if a1.button(f"⚔️ {t(L,'atk1')}: {m1['name'][L]} {m1['power']}{tag1}", type="primary"):
+                        cb_action("move1")
+                        st.rerun()
+                    cd = p["cd2"]
+                    if a2.button(f"🌟 {t(L,'atk2')}: {m2['name'][L]} {m2['power']}"
+                                 + (f"　⏳ {t(L,'cooldown',n=cd)}" if cd else ""), disabled=cd > 0):
+                        cb_action("move2")
+                        st.rerun()
+                    with a3.expander(t(L, "switch_panel")):
+                        bench = [i for i, f_ in enumerate(b["p"]) if f_["hp"] > 0 and i != b["pa"]]
+                        if not bench:
+                            st.caption(t(L, "empty_bench"))
+                        else:
+                            bopts = [f'{D.MON[b["p"][i]["id"]]["emoji"]} {D.MON[b["p"][i]["id"]]["name"][L]} '
+                                     f'({b["p"][i]["hp"]}/{b["p"][i]["mhp"]})' for i in bench]
+                            bsel = st.radio("switch_to", bopts, index=0, key="sw_sel",
+                                            label_visibility="collapsed")
+                            bidx = bench[bopts.index(bsel)] if bsel in bopts else bench[0]
+                            if st.button(f"✅ {t(L,'go_switch')}", key="sw_go"):
+                                cb_action("switch", bidx)
+                                st.rerun()
+                    with a4.expander(t(L, "items_panel")):
+                        if not b["pitems"]:
+                            st.caption(t(L, "empty_bench"))
+                        else:
+                            iopts = [f'{D.ITEM[iid]["emoji"]} {D.ITEM[iid]["name"][L]}' for iid in b["pitems"]]
+                            isel = st.radio("item_sel", iopts, index=0, key="it_sel",
+                                            label_visibility="collapsed")
+                            iid = b["pitems"][iopts.index(isel)] if isel in iopts else b["pitems"][0]
+                            if st.button(f"🎒 {t(L,'use')}", key="it_go"):
+                                cb_action("item", iid)
+                                st.rerun()
+
+            with st.expander(t(L, "battle_log"), expanded=True):
+                for line in b["log"][-40:]:
+                    st.markdown(f"- {line}")
+
+        if st.session_state.sound:
+            for sname in b["sfx"]:
+                SFX.play(sname)
+        b["sfx"] = []
+        b["hit"] = None
+
+# ------------------------------------------------------------------ games ---
+elif st.session_state.page == "games":
+    st.markdown(f'<span class="street-sign">{t(lang(),"games_title")}</span>', unsafe_allow_html=True)
+    st.caption(t(lang(), "games_desc"))
+
+    gt = st.segmented_control("games_tab", ["xq", "mj"],
+                              format_func=lambda g: t(lang(), "xq_title" if g == "xq" else "mj_title"),
+                              selection_mode="single", default="xq", key="games_tab")
+    tab = (gt[0] if isinstance(gt, list) else gt) or "xq"
+
+    if tab == "xq":
+        # ---------------- 象棋 ----------------
+        st.session_state.setdefault("xq_board", XQ.initial_board())
+        st.session_state.setdefault("xq_turn", "r")
+        st.session_state.setdefault("xq_sel", None)
+        st.session_state.setdefault("xq_over", None)
+        st.session_state.setdefault("xq_hist", [])
+        st.session_state.setdefault("xq_voice", [])
+        st.session_state.setdefault("xq_mode", "easy")
+
+        ms = st.segmented_control("xq_mode", ["p2", "easy", "hard"],
+                                  format_func=lambda m: t(lang(), "xq_p2" if m == "p2" else ("xq_easy" if m == "easy" else "xq_hard")),
+                                  selection_mode="single", default=st.session_state.xq_mode, key="xq_mode_sel")
+        if ms:
+            st.session_state.xq_mode = ms[0] if isinstance(ms, list) else ms
+
+        k1, k2, _k3 = st.columns([1, 1, 2])
+        if k1.button(t(lang(), "xq_new")):
+            st.session_state.xq_board = XQ.initial_board()
+            st.session_state.xq_turn = "r"
+            st.session_state.xq_sel = None
+            st.session_state.xq_over = None
+            st.session_state.xq_hist = []
+            st.rerun()
+        if k2.button(t(lang(), "xq_undo"), disabled=not st.session_state.xq_hist):
+            steps = 2 if (st.session_state.xq_mode != "p2" and len(st.session_state.xq_hist) >= 2) else 1
+            for _ in range(steps):
+                if st.session_state.xq_hist:
+                    board_, turn_ = st.session_state.xq_hist.pop()
+                    st.session_state.xq_board = board_
+                    st.session_state.xq_turn = turn_
+            st.session_state.xq_over = None
+            st.session_state.xq_sel = None
+            st.rerun()
+
+        b_ = st.session_state.xq_board
+        if st.session_state.xq_over:
+            win_txt = t(lang(), "xq_win_r") if st.session_state.xq_over == "r" else t(lang(), "xq_win_b")
+            st.markdown(f"<h2 style='text-align:center;color:#ffd23f;'>🏆 {win_txt}</h2>",
+                        unsafe_allow_html=True)
+            st.balloons()
+        else:
+            if st.session_state.xq_turn == "r":
+                cap = t(lang(), "xq_red_turn")
+                if st.session_state.xq_mode != "p2":
+                    cap += "　" + t(lang(), "xq_you_red")
+                st.markdown(f"<div style='text-align:center;font-weight:900;color:#ff9f9f;'>⏳ {cap}</div>",
+                            unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div style='text-align:center;font-weight:900;color:#9fc7ff;'>⏳ {t(lang(),'xq_black_turn')}</div>",
+                            unsafe_allow_html=True)
+
+        legal = [] if st.session_state.xq_over else XQ.legal_moves(b_, st.session_state.xq_turn)
+        targets = [t2 for (f_, t2) in legal if f_ == st.session_state.xq_sel] \
+            if st.session_state.xq_sel is not None else []
+        if st.session_state.xq_turn != "r" and st.session_state.xq_mode != "p2" and not st.session_state.xq_over:
+            targets = []
+
+        for r in range(10):
+            cols = st.columns(9, gap="small")
+            for c in range(9):
+                idx = r * 9 + c
+                piece = b_[idx]
+                if piece:
+                    label = XQ.CHAR[piece]
+                    btype = "primary" if piece[0] == "r" else "secondary"
+                    if st.session_state.xq_sel == idx:
+                        label = "▶" + label
+                else:
+                    label = "·" if idx in targets else "　"
+                    btype = "secondary"
+                if cols[c].button(label, key=f"xq{idx}", type=btype):
+                    cb_xq_click(idx)
+                    st.rerun()
+            if r == 4:
+                st.markdown("<div style='text-align:center;color:#5a6484;letter-spacing:1em;"
+                            "margin:2px 0;'>— 楚 河 — 漢 界 —</div>", unsafe_allow_html=True)
+
+        for txt in st.session_state.xq_voice:
+            if st.session_state.sound:
+                SFX.speak(txt)
+        st.session_state.xq_voice = []
+
+    else:
+        # ---------------- 麻將 ----------------
+        st.caption(t(lang(), "mj_note"))
+        if st.session_state.get("mj_game") is None or st.session_state.get("mj_new"):
+            st.session_state.mj_game = MJ.initial_game()
+            st.session_state.mj_new = False
+            st.session_state.mj_sel = None
+        g = st.session_state.mj_game
+
+        if st.button(t(lang(), "mj_new")):
+            st.session_state.mj_new = True
+            st.rerun()
+
+        c1, c2 = st.columns(2)
+        c1.markdown(f"**{t(lang(),'mj_wall')}** `{len(g['wall'])}`")
+        c2.markdown(f"**{t(lang(),'mj_score')}**　" + "　".join(
+            f"`{g['names'][p][:4]} {g['scores'][p]}`" for p in range(4)))
+
+        if g["await"] is None and g["over"] is None:
+            MJ.advance(g)
+
+        if g["over"]:
+            o = g["over"]
+            if o["winner"] is None:
+                st.warning("🀄 " + "、".join(o["labels"]))
+            else:
+                name = g["names"][o["winner"]]
+                st.success(f"🎉 **{name}**　{o['fan']} {t(lang(),'mj_fan')}　"
+                           f"（{'、'.join(o['labels'])}）")
+                if o["winner"] == 0:
+                    st.balloons()
+        elif g["await"]:
+            aw = g["await"]
+            if aw["type"] == "discard":
+                st.info("🖐 " + t(lang(), "mj_your_turn"))
+                hand0 = g["hands"][0]
+                zimo = MJ.can_win(hand0, len(g["melds"][0])) or MJ.is_thirteen_orphans(hand0, len(g["melds"][0]))
+                if zimo and st.button(t(lang(), "mj_zimo"), type="primary"):
+                    MJ._win_game(g, 0, aw.get("drawn") if aw.get("drawn") is not None else 0, True)
+                    g["await"] = None
+                    st.rerun()
+                st.session_state.setdefault("mj_sel", None)
+                hs = MJ.sorted_hand(hand0)
+                sel = st.session_state.mj_sel
+                for row_start in range(0, len(hs), 9):
+                    hcols = st.columns(9, gap="small")
+                    for j, tid in enumerate(hs[row_start:row_start + 9]):
+                        key = row_start + j
+                        mark = "▶" if sel == key else ""
+                        extra = " ✨" if aw.get("drawn") is not None and tid == aw["drawn"] and not sel == key else ""
+                        if hcols[j].button(mark + MJ.NAMES[tid] + extra, key=f"mjt{key}"):
+                            st.session_state.mj_sel = None if sel == key else key
+                            st.rerun()
+                if sel is not None and sel < len(hs):
+                    if st.button(f"🎯 {t(lang(),'mj_confirm')}：{MJ.NAMES[hs[sel]]}", type="primary",
+                                 key="mj_confirm"):
+                        MJ.human_discard(g, hs[sel])
+                        st.session_state.mj_sel = None
+                        st.rerun()
+                # tenpai hint
+                waiting = []
+                for tt in range(34):
+                    hand0[tt] += 1
+                    if MJ.can_win(hand0, len(g["melds"][0])) or MJ.is_thirteen_orphans(hand0, len(g["melds"][0])):
+                        waiting.append(tt)
+                    hand0[tt] -= 1
+                if waiting:
+                    st.caption(t(lang(), "mj_waiting") + " " +
+                               "、".join(MJ.NAMES[tt] for tt in waiting))
+            else:
+                st.warning(t(lang(), "mj_claim") + f" **{MJ.NAMES[aw['tile']]}**")
+                o = aw["opts"]
+                b1, b2, b3, b4 = st.columns(4)
+                if "win" in o and b1.button(t(lang(), "mj_win"), type="primary"):
+                    MJ.human_claim(g, "win", None)
+                    st.rerun()
+                if "kong" in o and b2.button(t(lang(), "mj_kong")):
+                    MJ.human_claim(g, "kong", None)
+                    st.rerun()
+                if "pong" in o and b3.button(t(lang(), "mj_pong")):
+                    MJ.human_claim(g, "pong", None)
+                    st.rerun()
+                chi_lo = None
+                if "chi" in o:
+                    if len(o["chi"]) > 1:
+                        chi_lo = st.radio("mj_chi", o["chi"],
+                                          format_func=lambda lo: MJ.NAMES[lo] + MJ.NAMES[lo + 1] + MJ.NAMES[lo + 2],
+                                          horizontal=True, key="mj_chi_sel")
+                    else:
+                        chi_lo = o["chi"][0]
+                    if b4.button(t(lang(), "mj_chi")):
+                        MJ.human_claim(g, "chi", chi_lo)
+                        st.rerun()
+                if st.button(t(lang(), "mj_skip")):
+                    MJ.skip_human_turn(g)
+                    st.rerun()
+        else:
+            st.caption("🀄 " + t(lang(), "mj_your_turn"))
+
+        # melds / rivers per player
+        st.markdown(f"**{t(lang(),'mj_river')}**")
+        for p in range(4):
+            melds_txt = "　".join(
+                ("碰" + MJ.NAMES[t2]) if k == "pong" else
+                (("上" + MJ.NAMES[t2] + MJ.NAMES[t2 + 1] + MJ.NAMES[t2 + 2]) if k == "chi" else
+                 ("槓" + MJ.NAMES[t2]))
+                for k, t2 in g["melds"][p])
+            river_txt = "、".join(MJ.NAMES[x] for x in g["rivers"][p][-10:])
+            who = "**你**" if p == 0 else g["names"][p]
+            line = f"{who}　{melds_txt}　|　{river_txt}" if (melds_txt or river_txt) else f"{who}　—"
+            st.caption(line)
+
+        with st.expander("📜 log"):
+            for line in g["log"][-12:]:
                 st.markdown(f"- {line}")
 
-    # play queued battle sounds, then clear anim flags
-    if st.session_state.sound:
-        for sname in b["sfx"]:
-            SFX.play(sname)
-    b["sfx"] = []
-    b["hit"] = None
+        for txt in g["voice"]:
+            if st.session_state.sound:
+                SFX.speak(txt)
+        g["voice"] = []
 
 # --------------------------------------------------------------- library ----
 elif st.session_state.page == "library":
