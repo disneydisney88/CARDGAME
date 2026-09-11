@@ -5,3 +5,6 @@ rooms.json
 scores.json
 rooms.json.tmp
 scores.json.tmp
+_t_*.mjs
+_t_*.json
+accounts.json
