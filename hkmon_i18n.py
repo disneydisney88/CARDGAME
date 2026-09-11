@@ -111,6 +111,12 @@ UI = {
         "mj_your_turn": "到你：揀一隻牌打出", "mj_claim": "有人打咗呢隻：", "mj_wall": "牌牆剩", "mj_fan": "番",
         "mj_score": "四家累積分數", "mj_new": "🔄 開新一局", "mj_your_hand": "你嘅手牌", "mj_river": "牌河",
         "mj_waiting": "聽緊：", "mj_win": "🀄 胡！",
+        "login_title": "🔑 登入儲分", "username": "暱稱", "password": "密碼",
+        "btn_login": "登入", "btn_register": "註冊", "btn_logout": "登出",
+        "login_bad": "密碼錯，或者冇呢個帳號。", "user_exists": "呢個名已經有人用咗。",
+        "login_short": "名同密碼都要至少 2 個字。", "login_welcome": "歡迎返嚟！存檔已載入。",
+        "guest_hint": "未登入：進度只會暫存，登入先可以儲分。",
+        "xq_win_rec": "棋局勝利已記錄",
     },
     # -------------------------------------------------------------- en ----
     "en": {
@@ -214,6 +220,12 @@ UI = {
         "mj_your_turn": "Your turn: pick a tile to discard", "mj_claim": "Someone discarded:", "mj_wall": "Wall left", "mj_fan": "fan",
         "mj_score": "Table scores", "mj_new": "🔄 New hand", "mj_your_hand": "Your hand", "mj_river": "Rivers",
         "mj_waiting": "Waiting on:", "mj_win": "🀄 Win!",
+        "login_title": "🔑 Sign in to Save", "username": "Username", "password": "Password",
+        "btn_login": "Sign in", "btn_register": "Register", "btn_logout": "Log out",
+        "login_bad": "Wrong password, or no such user.", "user_exists": "That name is taken.",
+        "login_short": "Name and password need at least 2 characters.", "login_welcome": "Welcome back! Save loaded.",
+        "guest_hint": "Not signed in: progress is temporary — sign in to keep your save.",
+        "xq_win_rec": "Chess result recorded",
     },
     # -------------------------------------------------------------- ja ----
     "ja": {
@@ -317,6 +329,12 @@ UI = {
         "mj_your_turn": "あなたの番：打つ牌を選択", "mj_claim": "誰かが打った牌：", "mj_wall": "残り牌", "mj_fan": "翻",
         "mj_score": "スコア", "mj_new": "🔄 新しい局", "mj_your_hand": "あなたの手牌", "mj_river": "河",
         "mj_waiting": "待ち：", "mj_win": "🀄 ロン！",
+        "login_title": "🔑 ログインしてセーブ", "username": "ユーザー名", "password": "パスワード",
+        "btn_login": "ログイン", "btn_register": "新規登録", "btn_logout": "ログアウト",
+        "login_bad": "パスワードが違うか、ユーザーが存在しません。", "user_exists": "その名前は既に使われています。",
+        "login_short": "名前とパスワードは2文字以上必要です。", "login_welcome": "おかえり！セーブを読み込みました。",
+        "guest_hint": "未ログイン：進捗は一時的です。セーブにはログインを。",
+        "xq_win_rec": "対局結果を記録",
     },
     # -------------------------------------------------------------- ko ----
     "ko": {
@@ -420,6 +438,12 @@ UI = {
         "mj_your_turn": "당신 차례: 버릴 패 선택", "mj_claim": "누군가 버린 패:", "mj_wall": "남은 패", "mj_fan": "판",
         "mj_score": "점수", "mj_new": "🔄 새 국", "mj_your_hand": "당신의 패", "mj_river": "버림패",
         "mj_waiting": "대기:", "mj_win": "🀄 화료!",
+        "login_title": "🔑 로그인하여 저장", "username": "아이디", "password": "비밀번호",
+        "btn_login": "로그인", "btn_register": "회원가입", "btn_logout": "로그아웃",
+        "login_bad": "비밀번호가 틀렸거나 없는 아이디입니다.", "user_exists": "이미 존재하는 아이디입니다.",
+        "login_short": "아이디와 비밀번호는 2자 이상이어야 합니다.", "login_welcome": "다시 오셨네요! 세트를 불러왔습니다.",
+        "guest_hint": "미로그인: 진행 상황이 임시 저장됩니다. 저장하려면 로그인하세요.",
+        "xq_win_rec": "대국 결과 기록",
     },
 }
 
