@@ -15,7 +15,7 @@ CSS = """
   box-shadow:0 10px 26px rgba(0,0,0,.5), inset 0 0 30px rgba(120,72,20,.25);
   overflow:hidden; touch-action:manipulation;}
 .xqboard svg{ position:absolute; inset:0; width:100%; height:100%; }
-.pc{ position:absolute; width:9.4%; aspect-ratio:1/1; transform:translate(-50%,-50%);
+.pc{ position:absolute; width:8.8%; aspect-ratio:1/1; transform:translate(-50%,-50%);
   border-radius:50%; display:flex; align-items:center; justify-content:center;
   background:radial-gradient(circle at 38% 30%, #fdf0d2 0%, #f0d49e 55%, #d8ab66 100%);
   border:2px solid #8a5a24; box-shadow:0 3px 6px rgba(0,0,0,.45), inset 0 2px 2px rgba(255,255,255,.7);
@@ -41,26 +41,27 @@ export default function (component) {
   const root = component.parentElement.querySelector('#xqroot');
   if (!root) return;
   const P = 5, S = 10;
-  const X = c => (P + c * S) * 100 / 90;
-  const Y = r => P + r * S;
+  const U = c => P + c * S;            // SVG viewBox units (0..90)
+  const X = c => U(c) * 100 / 90;      // CSS left %  (pieces / dots)
+  const Y = r => P + r * S;            // CSS top %   (viewBox height is 100)
 
   let lines = '';
   for (let c = 0; c < 9; c++) {
     if (c === 0 || c === 8) {
-      lines += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(9)}"/>`;
+      lines += `<line x1="${U(c)}" y1="${Y(0)}" x2="${U(c)}" y2="${Y(9)}"/>`;
     } else {
-      lines += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(4)}"/>`;
-      lines += `<line x1="${X(c)}" y1="${Y(5)}" x2="${X(c)}" y2="${Y(9)}"/>`;
+      lines += `<line x1="${U(c)}" y1="${Y(0)}" x2="${U(c)}" y2="${Y(4)}"/>`;
+      lines += `<line x1="${U(c)}" y1="${Y(5)}" x2="${U(c)}" y2="${Y(9)}"/>`;
     }
   }
   for (let r = 0; r < 10; r++) {
-    lines += `<line x1="${X(0)}" y1="${Y(r)}" x2="${X(8)}" y2="${Y(r)}"/>`;
+    lines += `<line x1="${U(0)}" y1="${Y(r)}" x2="${U(8)}" y2="${Y(r)}"/>`;
   }
-  for (const [x1, y1, x2, y2] of [[X(3),Y(0),X(5),Y(2)],[X(5),Y(0),X(3),Y(2)],
-                                   [X(3),Y(7),X(5),Y(9)],[X(5),Y(7),X(3),Y(9)]]) {
+  for (const [x1, y1, x2, y2] of [[U(3),Y(0),U(5),Y(2)],[U(5),Y(0),U(3),Y(2)],
+                                   [U(3),Y(7),U(5),Y(9)],[U(5),Y(7),U(3),Y(9)]]) {
     lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
   }
-  const outer = `<rect x="${X(0)-1.6}" y="${Y(0)-1.6}" width="${S*8+3.2}" height="${S*9+3.2}"
+  const outer = `<rect x="${U(0)-1.6}" y="${Y(0)-1.6}" width="${S*8+3.2}" height="${S*9+3.2}"
     fill="none" stroke-width="0.8"/>`;
 
   let h = `<div class="xqboard">
