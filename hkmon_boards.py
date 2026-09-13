@@ -9,7 +9,7 @@ import streamlit as st
 CSS = """
 #xqroot{ font-family:'Noto Sans TC','Noto Sans JP',sans-serif; }
 .xqboard{ position:relative; width:100%; max-width:540px; margin:0 auto;
-  aspect-ratio:10/11; background:
+  aspect-ratio:9/10; background:
   radial-gradient(ellipse at 50% 30%, #f3d9a4 0%, #e9c98c 55%, #d9b273 100%);
   border:10px solid #5b3a1e; border-radius:12px;
   box-shadow:0 10px 26px rgba(0,0,0,.5), inset 0 0 30px rgba(120,72,20,.25);
@@ -41,7 +41,8 @@ export default function (component) {
   const root = component.parentElement.querySelector('#xqroot');
   if (!root) return;
   const P = 5, S = 10;
-  const X = c => P + c * S, Y = r => P + r * S;
+  const X = c => (P + c * S) * 100 / 90;
+  const Y = r => P + r * S;
 
   let lines = '';
   for (let c = 0; c < 9; c++) {
