@@ -285,3 +285,286 @@ def build_view(g, sel):
 def MJ_sorted(g):
     import hkmon_mahjong as MJm
     return MJm.sorted_hand(g["hands"][0])
+
+
+# ------------------------------------------------------- 魚蝦蟹 cloth ----
+FSC_CSS = """
+#fscroot{ font-family:'Noto Sans TC','Noto Sans JP',sans-serif; }
+.cloth{ background:linear-gradient(165deg,#ffffff 0%,#f4f2ec 100%);
+  border:4px solid #111; border-radius:6px; padding:14px; max-width:620px; margin:0 auto;
+  box-shadow:0 8px 20px rgba(0,0,0,.5); }
+.title{ text-align:center; color:#c0392b; font-weight:900; font-size:1.5rem;
+  font-family:serif; letter-spacing:.3em; margin:2px 0 10px;}
+.panels{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.panel{ border:2.5px solid #333; border-radius:4px; padding:10px 6px; text-align:center;
+  cursor:pointer; background:#fff; position:relative; user-select:none;}
+.panel:hover{ background:#fdf6e3; }
+.panel .em{ font-size:2.4rem; display:block; filter:grayscale(0);}
+.panel .ch{ font-family:serif; font-weight:900; font-size:1.3rem; display:block; margin-top:2px;}
+.panel .bet{ position:absolute; top:4px; right:6px; font-weight:900; color:#1e8449;
+  font-size:.9rem;}
+.dice{ display:flex; justify-content:center; gap:12px; margin:12px 0 4px;}
+.die{ width:64px; height:64px; border-radius:10px; border:3px solid #333;
+  background:#fff; display:flex; align-items:center; justify-content:center;
+  font-size:2.4rem; box-shadow:0 4px 8px rgba(0,0,0,.25);}
+.chiprow{ display:flex; justify-content:center; gap:8px; margin:10px 0;}
+.chipbtn{ border-radius:50%; width:52px; height:52px; display:flex; align-items:center;
+  justify-content:center; font-weight:900; cursor:pointer; color:#fff; font-size:.85rem;
+  border:4px dashed rgba(255,255,255,.7);}
+.chipbtn.sel{ outline:3px solid #c0392b; transform:scale(1.1);}
+.c10{ background:#1b4f8f;} .c50{ background:#1e8449;} .c100{ background:#b03024;}
+.c500{ background:#6c3483;}
+.rowline{ display:flex; justify-content:center; align-items:center; gap:10px;
+  margin-top:10px; flex-wrap:wrap;}
+.rollbtn{ background:radial-gradient(circle at 35% 30%,#ff8a7a,#c0392b); color:#fff;
+  font-weight:900; font-size:1.2rem; border-radius:14px; padding:10px 30px; cursor:pointer;
+  box-shadow:0 5px 0 rgba(0,0,0,.3);}
+.rollbtn.off{ opacity:.4; pointer-events:none;}
+.clearbtn{ color:#57606f; font-weight:800; cursor:pointer; text-decoration:underline;
+  font-size:.85rem;}
+.chipsleft{ font-weight:900; color:#1e8449; font-size:1.1rem;}
+.net{ font-weight:900; text-align:center; margin-top:6px; font-size:1.15rem;}
+.net.win{ color:#1e8449;} .net.lose{ color:#c0392b;}
+.broke{ text-align:center; margin-top:8px;}
+.resetbtn{ background:#c0392b; color:#fff; font-weight:900; border-radius:10px;
+  padding:8px 22px; cursor:pointer;}
+"""
+
+FSC_JS = """
+export default function (component) {
+  const d = component.data || {};
+  const root = component.parentElement.querySelector('#fscroot');
+  if (!root) return;
+  const S = d.symbols || [];
+  let h = '<div class="cloth">';
+  h += '<div class="title">大 公 無 私</div>';
+  h += '<div class="panels">';
+  for (const s of S) {
+    const bet = d.bets[s.id] || 0;
+    h += '<div class="panel" data-bet="' + s.id + '">' +
+         (bet ? '<span class="bet">$' + bet + '</span>' : '') +
+         '<span class="em">' + s.emoji + '</span>' +
+         '<span class="ch" style="color:' + s.color + '">' + s.char + '</span></div>';
+  }
+  h += '</div><div class="dice">';
+  if (d.dice) {
+    for (const t of d.dice) h += '<div class="die">' + S[t].emoji + '</div>';
+  } else {
+    h += '<div class="die">❓</div><div class="die">❓</div><div class="die">❓</div>';
+  }
+  h += '</div><div class="chiprow">';
+  for (const c of d.chip_steps) {
+    h += '<div class="chipbtn c' + c + (d.chip === c ? ' sel' : '') + '" data-chip="' + c + '">$' + c + '</div>';
+  }
+  h += '</div><div class="rowline">';
+  h += '<span class="chipsleft">' + d.chips_left + ' $' + d.chips + '</span>';
+  const total = Object.values(d.bets).reduce((a, b) => a + b, 0);
+  const canRoll = d.dice === null && total > 0 && !d.broke;
+  h += '<div class="rollbtn' + (canRoll ? '' : ' off') + '" data-act="roll">' + d.roll_txt + '</div>';
+  h += (total > 0 && d.dice === null) ? '<span class="clearbtn" data-act="clear">' + d.clear_txt + '</span>' : '';
+  h += '</div>';
+  if (d.last && d.last.net !== undefined && d.dice) {
+    const cls = d.last.net > 0 ? 'win' : (d.last.net < 0 ? 'lose' : '');
+    const sign = d.last.net > 0 ? '+' : '';
+    h += '<div class="net ' + cls + '">' + (d.last.triple ? '圍骰！' : '') +
+         sign + '$' + d.last.net + '</div>';
+  }
+  if (d.broke) {
+    h += '<div class="broke"><div class="resetbtn" data-act="reset">' + d.reset_txt + '</div></div>';
+  }
+  h += '</div>';
+  root.innerHTML = h;
+  root.querySelectorAll('[data-bet]').forEach(el =>
+    el.addEventListener('click', () => component.setTriggerValue('bet', Number(el.dataset.bet))));
+  root.querySelectorAll('[data-chip]').forEach(el =>
+    el.addEventListener('click', () => component.setTriggerValue('chipv', Number(el.dataset.chip))));
+  root.querySelectorAll('[data-act]').forEach(el =>
+    el.addEventListener('click', () => component.setTriggerValue('fsc_act', el.dataset.act)));
+  return {};
+}
+"""
+
+FSC_TABLE = st.components.v2.component(
+    "hkmon_fsc_cloth", html="<div id='fscroot'></div>", css=FSC_CSS, js=FSC_JS)
+
+
+def fsc_view(g, chips_left_txt, roll_txt, clear_txt, reset_txt):
+    from hkmon_fsc import SYMBOLS, CHIP_STEPS
+    return {
+        "symbols": [{k: s[k] for k in ("id", "char", "emoji", "color")} for s in SYMBOLS],
+        "bets": {str(k): v for k, v in g["bets"].items()},
+        "chip": g["chip"],
+        "chip_steps": CHIP_STEPS,
+        "dice": g["dice"],
+        "chips": g["chips"],
+        "chips_left": chips_left_txt,
+        "roll_txt": roll_txt,
+        "clear_txt": clear_txt,
+        "reset_txt": reset_txt,
+        "broke": g["chips"] < CHIP_STEPS[0],
+        "last": g["last_result"],
+    }
+
+
+# ------------------------------------------------------- 大富翁 board ----
+MP_CSS = """
+#mproot{ font-family:'Noto Sans TC','Noto Sans JP',sans-serif; }
+.mpboard{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px;
+  background:linear-gradient(165deg,#e8dcc0,#d6c8a8); border:10px solid #4a2f18;
+  border-radius:14px; padding:8px; max-width:660px; margin:0 auto;
+  box-shadow:0 10px 24px rgba(0,0,0,.5);}
+.mpcenter{ grid-area:2/2/7/7; background:radial-gradient(ellipse at center,#f2ead2,#e0d2ac);
+  border-radius:10px; padding:10px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center;}
+.mptile{ position:relative; background:#fffdf4; border:1.5px solid #8a7a52;
+  border-radius:6px; min-height:64px; padding:3px 4px; overflow:hidden;
+  display:flex; flex-direction:column;}
+.mptile .strip{ height:9px; border-radius:3px; margin:-3px -4px 3px; }
+.mptile .nm{ font-weight:800; font-size:.68rem; line-height:1.15;}
+.mptile .pr{ font-size:.62rem; color:#5c5340;}
+.mptile .own{ position:absolute; top:12px; right:2px; font-size:.58rem; font-weight:900;
+  border-radius:999px; padding:0 5px; color:#fff;}
+.mptile .lv{ position:absolute; bottom:2px; left:3px; font-size:.6rem; color:#b8860b;}
+.mptile.hl{ outline:3px solid #ffd23f; }
+.tokens{ position:absolute; bottom:2px; right:3px; font-size:.66rem; letter-spacing:1px;}
+.mpdice{ display:flex; gap:10px; margin:6px 0;}
+.mpdie{ width:44px; height:44px; background:#fff; border:2.5px solid #333;
+  border-radius:9px; display:flex; align-items:center; justify-content:center;
+  font-weight:900; font-size:1.5rem; box-shadow:0 3px 6px rgba(0,0,0,.25);}
+.mpplayers{ display:flex; flex-direction:column; gap:4px; margin:6px 0; width:100%;}
+.mpp{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.65);
+  border-radius:8px; padding:3px 8px; font-size:.8rem; font-weight:800;}
+.mpp .dot{ width:12px; height:12px; border-radius:50%; }
+.mpp.broke{ opacity:.4; text-decoration:line-through;}
+.mpbtn{ background:linear-gradient(180deg,#e05548,#a02c22); color:#fff; font-weight:900;
+  border-radius:10px; padding:7px 20px; cursor:pointer; font-size:.95rem;
+  box-shadow:0 4px 0 rgba(0,0,0,.3);}
+.mpbtn.green{ background:linear-gradient(180deg,#6fe08a,#1e8449);}
+.mpbtn.grey{ background:linear-gradient(180deg,#6b7488,#3d4454);}
+.mpbtn.gold{ background:linear-gradient(180deg,#e8a93d,#a8700f);}
+.mpprompt{ font-weight:900; color:#7a3b00; margin:5px 0;}
+.mplog{ font-size:.68rem; color:#5c5340; max-height:70px; overflow:hidden;
+  width:100%; text-align:left; margin-top:6px; line-height:1.35;}
+.mpover{ font-weight:900; font-size:1.05rem; margin:4px 0;}
+"""
+
+MP_JS = """
+export default function (component) {
+  const d = component.data || {};
+  const root = component.parentElement.querySelector('#mproot');
+  if (!root) return;
+  const PLAYER_COLORS = ['#ff5c5c', '#4a7fd6', '#2ea86b'];
+  // ring positions for 24 tiles on a 7x7 grid (1-based css grid lines)
+  const pos = [];
+  for (let c = 7; c >= 1; c--) pos.push({ r: 7, c });        // 0..6  bottom (right→left)
+  for (let r = 6; r >= 2; r--) pos.push({ r, c: 1 });        // 7..11 left (bottom→top)
+  for (let c = 1; c <= 7; c++) pos.push({ r: 1, c });        // 12..18 top (left→right)
+  for (let r = 2; r <= 6; r++) pos.push({ r, c: 7 });        // 19..23 right (top→bottom)
+
+  let h = '<div class="mpboard">';
+  for (let t = 0; t < 24; t++) {
+    const info = d.tiles[t];
+    const p = pos[t];
+    const own = info.owner >= 0 ? ('<span class="own" style="background:' +
+      PLAYER_COLORS[info.owner] + '">' + d.own_marks[info.owner] + '</span>') : '';
+    const lv = info.level > 1 ? '<span class="lv">' + '★'.repeat(info.level - 1) + '</span>' : '';
+    const tokens = d.positions.map((pp, pi) => pp === t ?
+      '<span style="color:' + PLAYER_COLORS[pi] + '">●</span>' : '').join('');
+    const hl = (d.hl === t) ? ' hl' : '';
+    h += '<div class="mptile' + hl + '" style="grid-area:' + p.r + '/' + p.c + ';">' +
+      '<div class="strip" style="background:' + info.color + '"></div>' +
+      '<div class="nm">' + info.name + '</div>' +
+      (info.price ? '<div class="pr">$' + info.price + '</div>' : '') +
+      own + lv +
+      (tokens ? '<div class="tokens">' + tokens + '</div>' : '') + '</div>';
+  }
+  h += '<div class="mpcenter">';
+  h += '<div class="mpdice">' +
+    '<div class="mpdie">' + (d.dice ? d.dice[0] : '?') + '</div>' +
+    '<div class="mpdie">' + (d.dice ? d.dice[1] : '?') + '</div></div>';
+  h += '<div class="mpplayers">';
+  d.names.forEach((n, i) => {
+    h += '<div class="mpp' + (d.alive[i] ? '' : ' broke') + '">' +
+      '<span class="dot" style="background:' + PLAYER_COLORS[i] + '"></span>' + n +
+      '　$' + d.cash[i] + '</div>';
+  });
+  h += '</div>';
+  h += '<div class="mpprompt">' + (d.prompt || '') + '</div>';
+  if (d.over) {
+    h += '<div class="mpover">' + d.over + '</div>';
+  }
+  h += '<div class="abar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
+  if (!d.over) {
+    if (d.await_buy) {
+      h += '<div class="mpbtn green" data-mp="buy">' + d.buy_txt + '</div>';
+      h += '<div class="mpbtn grey" data-mp="skip">' + d.skip_txt + '</div>';
+    } else if (d.await_upgrade) {
+      h += '<div class="mpbtn gold" data-mp="upgrade">' + d.up_txt + '</div>';
+      h += '<div class="mpbtn grey" data-mp="skip">' + d.skip_txt + '</div>';
+    } else {
+      h += '<div class="mpbtn" data-mp="roll">' + d.roll_txt + '</div>';
+    }
+  } else {
+    h += '<div class="mpbtn" data-mp="again">' + d.again_txt + '</div>';
+  }
+  h += '</div>';
+  h += '<div class="mplog">' + (d.log || '').join('<br>') + '</div>';
+  h += '</div></div>';
+  root.innerHTML = h;
+  root.querySelectorAll('[data-mp]').forEach(el =>
+    el.addEventListener('click', () => component.setTriggerValue('mp', el.dataset.mp)));
+  return {};
+}
+"""
+
+MP_BOARD = st.components.v2.component(
+    "hkmon_mp_board", html="<div id='mproot'></div>", css=MP_CSS, js=MP_JS)
+
+
+def mp_view(g, own_marks, txts):
+    import hkmon_monopoly as MP
+    tiles = []
+    for t in range(24):
+        pr = MP.TILE_PROPS.get(t)
+        sp = MP.SPECIAL.get(t) or {}
+        if pr:
+            own = g["own"].get(t, {})
+            tiles.append({"name": pr["zh"], "price": pr["price"],
+                          "color": MP.GROUPS[pr["group"]],
+                          "owner": own.get("owner", -1),
+                          "level": own.get("level", 1)})
+        else:
+            tiles.append({"name": sp.get("zh", "?"), "price": 0,
+                          "color": "#8a7a52", "owner": -1, "level": 1})
+    aw = g["await"]
+    prompt, await_buy, await_upgrade = "", False, False
+    if aw and aw["type"] == "buy":
+        await_buy = True
+        prompt = txts["prompt_buy"].format(n=MP.tile_name(g, aw["tile"])) + \
+            f" (${MP.TILE_PROPS[aw['tile']]['price']})"
+    elif aw and aw["type"] == "upgrade":
+        await_upgrade = True
+        prompt = txts["prompt_up"].format(n=MP.tile_name(g, aw["tile"]))
+    elif not g["over"]:
+        prompt = txts.get("prompt_roll", "")
+    over = None
+    if g["over"]:
+        o = g["over"]
+        wname = g["names"][o["winner"]] if o["winner"] >= 0 else "—"
+        over = f"🏆 {wname}　（{o['reason']}）"
+    return {
+        "tiles": tiles,
+        "positions": list(g["pos"]),
+        "cash": list(g["cash"]),
+        "alive": list(g["alive"]),
+        "names": list(g["names"]),
+        "own_marks": own_marks,
+        "dice": g["dice"],
+        "round": g["round"],
+        "await_buy": await_buy,
+        "await_upgrade": await_upgrade,
+        "prompt": prompt + f"　({g['round']}/{MP.MAX_ROUNDS})",
+        "over": over,
+        "log": list(reversed(g["log"][-6:])),
+        "txts": txts,
+    }

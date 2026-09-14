@@ -12,7 +12,10 @@ import streamlit as st
 import hkmon_accounts as ACC
 import hkmon_arena as AR
 import hkmon_boards as XB
+import hkmon_accounts as ACC
 import hkmon_data as D
+import hkmon_fsc as FSC
+import hkmon_monopoly as MP
 import hkmon_i18n as I18N
 import hkmon_engine as E
 import hkmon_mahjong as MJ
@@ -41,6 +44,7 @@ def _init_state():
         "lib_types": [], "lib_rarity": "all",
         # player / pvp
         "player_name": "", "p2_name": "", "user": None, "login_mode": "login",
+        "fsc_game": None, "mp_game": None,
         "room_code": None, "room_ver": 0, "online_role": None,  # None|host|guest
         "p2_wants_rematch": False, "guest_asked_rematch": False,
         "guest_sent": False, "room_gone": False,
@@ -49,7 +53,9 @@ def _init_state():
         st.session_state.setdefault(k, v)
     try:  # shareable deep links: /?page=games etc.
         qa = st.query_args
-        pg = qa.get("page") if isinstance(qa, dict) else (qa.get("page") if hasattr(qa, "get") else None)
+        pg = qa.get("page") if hasattr(qa, "get") else None
+        if isinstance(pg, list):
+            pg = pg[0] if pg else None
         if pg and pg in PAGES_LATER:
             st.session_state.page = pg
     except Exception:
@@ -872,12 +878,15 @@ elif st.session_state.page == "games":
 
     try:
         _qt = st.query_args.get("tab") if hasattr(st.query_args, "get") else None
-        if _qt in ("xq", "mj"):
+        if isinstance(_qt, list):
+            _qt = _qt[0] if _qt else None
+        if _qt in ("xq", "mj", "fsc", "mp"):
             st.session_state.games_tab = _qt
     except Exception:
         pass
-    gt = st.segmented_control("games_tab", ["xq", "mj"],
-                              format_func=lambda g: t(lang(), "xq_title" if g == "xq" else "mj_title"),
+    gt = st.segmented_control("games_tab", ["xq", "mj", "fsc", "mp"],
+                              format_func=lambda g: t(lang(), {"xq": "xq_title", "mj": "mj_title",
+                                                               "fsc": "fsc_title", "mp": "mp_title"}[g]),
                               selection_mode="single", default="xq", key="games_tab")
     tab = (gt[0] if isinstance(gt, list) else gt) or "xq"
 
@@ -956,7 +965,86 @@ elif st.session_state.page == "games":
                 SFX.speak(txt)
         st.session_state.xq_voice = []
 
-    else:
+    elif tab == "fsc":
+        # ---------------- 魚蝦蟹 ----------------
+        st.caption(t(lang(), "fsc_note"))
+        if st.session_state.get("fsc_game") is None:
+            saved = None
+            if st.session_state.get("user"):
+                saved = (ACC.get(st.session_state.user) or {}).get("fsc_chips")
+            st.session_state.fsc_game = FSC.new_game(saved)
+        g = st.session_state.fsc_game
+
+        view = TBL.fsc_view(g, t(lang(), "fsc_chips"), t(lang(), "fsc_roll"),
+                            t(lang(), "fsc_clear"), t(lang(), "fsc_reset"))
+        fres = TBL.FSC_TABLE(key="fsc_ui", data=view,
+                             on_bet_change=lambda: None, on_chipv_change=lambda: None,
+                             on_fsc_act_change=lambda: None)
+        bicon = getattr(fres, "bet", None)
+        chipv = getattr(fres, "chipv", None)
+        fact = getattr(fres, "fsc_act", None)
+        if bicon is not None:
+            FSC.place_bet(g, bicon)
+            st.rerun()
+        if chipv is not None:
+            FSC.set_chip(g, chipv)
+            st.rerun()
+        if fact == "clear":
+            FSC.clear_bets(g)
+            st.rerun()
+        if fact == "reset":
+            st.session_state.fsc_game = FSC.new_game()
+            st.rerun()
+        if fact == "roll":
+            FSC.roll(g)
+            if st.session_state.get("user"):
+                ACC.set_stats(st.session_state.user, fsc_chips=g["chips"])
+            st.rerun()
+        for txt in g["voice"]:
+            if st.session_state.sound:
+                SFX.speak(txt)
+        g["voice"] = []
+
+    elif tab == "mp":
+        # ---------------- 大富翁 ----------------
+        st.caption(t(lang(), "mp_note"))
+        if st.session_state.get("mp_game") is None:
+            st.session_state.mp_game = MP.new_game()
+        g = st.session_state.mp_game
+
+        own_marks = ["你", "強", "霞"]
+        txts = {"buy": t(lang(), "mp_buy"), "skip": t(lang(), "mp_skip"),
+                "upgrade": t(lang(), "mp_upgrade"), "roll": t(lang(), "mp_roll"),
+                "again": t(lang(), "mp_again"),
+                "prompt_buy": t(lang(), "mp_prompt_buy"),
+                "prompt_up": t(lang(), "mp_prompt_up"),
+                "prompt_roll": "🎲 " + t(lang(), "mp_roll")}
+        view = TBL.mp_view(g, own_marks, txts)
+        mres = TBL.MP_BOARD(key="mp_ui", data=view, on_mp_change=lambda: None)
+        mact = getattr(mres, "mp", None)
+
+        if mact == "roll":
+            MP.roll(g)
+            if g["over"] and g["over"].get("winner") == 0 and st.session_state.get("user"):
+                ACC.update_stats(st.session_state.user, mp_wins=1)
+            st.rerun()
+        elif mact == "buy":
+            MP.decide(g, "buy")
+            st.rerun()
+        elif mact == "upgrade":
+            MP.decide(g, "upgrade")
+            st.rerun()
+        elif mact == "skip":
+            MP.skip(g)
+            st.rerun()
+        elif mact == "again":
+            st.session_state.mp_game = MP.new_game()
+            st.rerun()
+
+        if g["over"] and g["over"].get("winner") == 0:
+            st.balloons()
+
+    elif tab == "mj":
         # ---------------- 麻將 ----------------
         st.caption(t(lang(), "mj_note"))
         if st.session_state.get("mj_game") is None or st.session_state.get("mj_new"):

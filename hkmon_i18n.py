@@ -117,6 +117,14 @@ UI = {
         "login_short": "名同密碼都要至少 2 個字。", "login_welcome": "歡迎返嚟！存檔已載入。",
         "guest_hint": "未登入：進度只會暫存，登入先可以儲分。",
         "xq_win_rec": "棋局勝利已記錄",
+        "fsc_title": "🦀 魚蝦蟹", "mp_title": "🏙️ 大富翁",
+        "fsc_note": "傳統街頭骰寶：落注魚蝦蟹雞葫錢，一中一倍！圍骰通殺。籌碼自動儲存。",
+        "mp_note": "港式大富翁：買起銅鑼灣、廟街、蘭桂坊，收租迫爆對手！",
+        "fsc_roll": "開骰！", "fsc_clear": "收返注碼", "fsc_reset": "破產重新開局（$1000）",
+        "fsc_chips": "籌碼",
+        "mp_roll": "🎲 擲骰", "mp_buy": "買入", "mp_skip": "唔買", "mp_upgrade": "升級",
+        "mp_again": "🔄 再嚟一局", "mp_prompt_buy": "{n}：買唔買？", "mp_prompt_up": "{n}：升級？",
+        "mp_note_win": "大富翁勝利已記錄",
     },
     # -------------------------------------------------------------- en ----
     "en": {
@@ -226,6 +234,14 @@ UI = {
         "login_short": "Name and password need at least 2 characters.", "login_welcome": "Welcome back! Save loaded.",
         "guest_hint": "Not signed in: progress is temporary — sign in to keep your save.",
         "xq_win_rec": "Chess result recorded",
+        "fsc_title": "🦀 Fish-Prawn-Crab", "mp_title": "🏙️ Monopoly HK",
+        "fsc_note": "Classic street dice: bet on symbols, win ×n per hit. Triples sweep the table. Chips auto-saved.",
+        "mp_note": "HK Monopoly: buy Causeway Bay, Temple Street, Lan Kwai Fong — bankrupt the bots!",
+        "fsc_roll": "Roll!", "fsc_clear": "Clear bets", "fsc_reset": "Broke — restart ($1000)",
+        "fsc_chips": "Chips",
+        "mp_roll": "🎲 Roll", "mp_buy": "Buy", "mp_skip": "Skip", "mp_upgrade": "Upgrade",
+        "mp_again": "🔄 Play again", "mp_prompt_buy": "{n}: buy it?", "mp_prompt_up": "{n}: upgrade?",
+        "mp_note_win": "Monopoly win recorded",
     },
     # -------------------------------------------------------------- ja ----
     "ja": {
@@ -335,6 +351,14 @@ UI = {
         "login_short": "名前とパスワードは2文字以上必要です。", "login_welcome": "おかえり！セーブを読み込みました。",
         "guest_hint": "未ログイン：進捗は一時的です。セーブにはログインを。",
         "xq_win_rec": "対局結果を記録",
+        "fsc_title": "🦀 魚蝦蟹", "mp_title": "🏙️ モノポリー",
+        "fsc_note": "香港の伝統サイコロ：シンボルに賭けて、3個揃いはパー。チップは自動セーブ。",
+        "mp_note": "香港式モノポリー：銅鑼湾や廟街を買い、ライバルを破産させろ！",
+        "fsc_roll": "振る！", "fsc_clear": "賭け取消", "fsc_reset": "破産リスタート（$1000）",
+        "fsc_chips": "チップ",
+        "mp_roll": "🎲 サイコロ", "mp_buy": "購入", "mp_skip": "やめる", "mp_upgrade": "アップグレード",
+        "mp_again": "🔄 もう一度", "mp_prompt_buy": "{n}：買う？", "mp_prompt_up": "{n}：アップグレード？",
+        "mp_note_win": "モノポリー勝利を記録",
     },
     # -------------------------------------------------------------- ko ----
     "ko": {
@@ -444,6 +468,14 @@ UI = {
         "login_short": "아이디와 비밀번호는 2자 이상이어야 합니다.", "login_welcome": "다시 오셨네요! 세트를 불러왔습니다.",
         "guest_hint": "미로그인: 진행 상황이 임시 저장됩니다. 저장하려면 로그인하세요.",
         "xq_win_rec": "대국 결과 기록",
+        "fsc_title": "🦀 어새프로우크랩", "mp_title": "🏙️ 모노폴리 HK",
+        "fsc_note": "홍콩 전통 주사위: 심볼에 배팅, 한 개당 1배! 트리플이면 전부 스윕. 칩 자동 저장.",
+        "mp_note": "홍콩식 모노폴리: 더즌완, 템플 스트리트를 사서 봇을 파산시켜라!",
+        "fsc_roll": "굴리기!", "fsc_clear": "배팅 취소", "fsc_reset": "파산 재시작 ($1000)",
+        "fsc_chips": "칩",
+        "mp_roll": "🎲 굴리기", "mp_buy": "구입", "mp_skip": "건너뛰기", "mp_upgrade": "업그레이드",
+        "mp_again": "🔄 다시 하기", "mp_prompt_buy": "{n}: 살까?", "mp_prompt_up": "{n}: 업그레이드?",
+        "mp_note_win": "모노폴리 승리 기록",
     },
 }
 
