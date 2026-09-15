@@ -178,21 +178,40 @@ def apply_move(board, mv):
 
 
 def evaluate(board):
-    """Material score from Red's perspective, with small positional terms."""
+    """Material + positional score from Red's perspective.
+
+    Positional tactics: pawns gain value as they advance toward the palace
+    (a passed pawn on the 7th rank is nearly a knight); horses and cannons
+    are rewarded for central files and crossing the river; advisors and
+    elephants get a small bonus for staying home guarding the king."""
     s = 0
     for i, p in enumerate(board):
         if not p:
             continue
+        r, c = divmod(i, 9)
         v = VAL[p[1]]
-        r = i // 9
+        side = p[0]
+        home = (side == RED)
+        adv = (9 - r) if home else r          # steps advanced from back rank
         if p[1] == "P":
-            if (p[0] == RED and r <= 4) or (p[0] == BLACK and r >= 5):
-                v += 10
-        elif p[1] in ("N", "C"):
-            c = i % 9
+            if (home and r <= 4) or (not home and r >= 5):
+                v += 14 + adv * 3              # crossed river ladder
             if 2 <= c <= 6:
-                v += 3
-        s += v if p[0] == RED else -v
+                v += 2
+        elif p[1] in ("N", "C"):
+            if 2 <= c <= 6:
+                v += 5
+            if (home and r <= 6) or (not home and r >= 3):
+                v += 3                          # developed off the back rank
+            if 3 <= c <= 5:
+                v += 2
+        elif p[1] in ("A", "B"):
+            if (home and r >= 8) or (not home and r <= 1):
+                v += 2                          # guards near the palace
+        elif p[1] == "K":
+            edge = min(c, 8 - c)
+            v += edge * 2                       # king on the wing is safer
+        s += v if side == RED else -v
     return s
 
 
@@ -230,29 +249,50 @@ def _search(board, side, depth, alpha, beta):
     return best
 
 
-def best_move(board, side, depth=3, jitter=0):
-    """Root search over legal moves. Returns (i, t) or None."""
+def _order(board, moves):
+    """Captures first, most valuable victim first — speeds up alpha-beta."""
+    scored = []
+    for i, t in moves:
+        pri = VAL[board[t][1]] * 10 if board[t] else 0
+        scored.append((pri, i, t))
+    scored.sort(reverse=True)
+    return scored
+
+
+def best_move(board, side, depth=3, jitter=0, time_cap=2.5):
+    """Iterative-deepening root search with a time budget.
+
+    depth acts as the max depth; the search stops early when the clock
+    runs out, always keeping the best move from the last completed depth.
+    """
+    import time as _time
     moves = legal_moves(board, side)
     if not moves:
         return None
     foe = BLACK if side == RED else RED
-    scored = []
-    for i, t in moves:
-        pri = VAL[board[t][1]] if board[t] else 0
-        scored.append((pri, i, t))
-    scored.sort(reverse=True)
-    best, best_sc = None, -INF
-    alpha = -INF
-    for _, i, t in scored:
-        cap = board[t]
-        board[t] = board[i]
-        board[i] = None
-        sc = -_search(board, foe, depth - 1, -INF, -alpha)
-        board[i] = board[t]
-        board[t] = cap
-        if jitter:
-            sc += random.uniform(-jitter, jitter)
-        if sc > best_sc:
-            best_sc, best = sc, (i, t)
-            alpha = max(alpha, sc)
+    t0 = _time.time()
+    ordered = [(i, t) for _, i, t in _order(board, moves)]
+    best = ordered[0]
+    for d in range(1, depth + 1):
+        cur_best, cur_sc = None, -INF
+        alpha = -INF
+        # search the previous best first for stronger pruning
+        try_order = [best] + [m for m in ordered if tuple(m) != tuple(best)] if d > 1 else ordered
+        for i, t in try_order:
+            cap = board[t]
+            board[t] = board[i]
+            board[i] = None
+            sc = -_search(board, foe, d - 1, -INF, -alpha)
+            board[i] = board[t]
+            board[t] = cap
+            if jitter:
+                sc += random.uniform(-jitter, jitter)
+            if sc > cur_sc:
+                cur_sc, cur_best = sc, (i, t)
+                alpha = max(alpha, sc)
+            if _time.time() - t0 > time_cap:
+                break
+        best = cur_best or best
+        if _time.time() - t0 > time_cap:
+            break
     return best

@@ -410,42 +410,80 @@ def fsc_view(g, chips_left_txt, roll_txt, clear_txt, reset_txt):
 MP_CSS = """
 #mproot{ font-family:'Noto Sans TC','Noto Sans JP',sans-serif; }
 .mpboard{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px;
-  background:linear-gradient(165deg,#e8dcc0,#d6c8a8); border:10px solid #4a2f18;
-  border-radius:14px; padding:8px; max-width:660px; margin:0 auto;
-  box-shadow:0 10px 24px rgba(0,0,0,.5);}
-.mpcenter{ grid-area:2/2/7/7; background:radial-gradient(ellipse at center,#f2ead2,#e0d2ac);
-  border-radius:10px; padding:10px; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; text-align:center; color:#3a2c14;}
-.mptile{ position:relative; background:#fffdf4; border:1.5px solid #8a7a52;
-  border-radius:6px; min-height:64px; padding:3px 4px; overflow:hidden;
-  display:flex; flex-direction:column;}
-.mptile .strip{ height:9px; border-radius:3px; margin:-3px -4px 3px; }
-.mptile .nm{ font-weight:800; font-size:.68rem; line-height:1.15; color:#1c1710;}
-.mptile .pr{ font-size:.62rem; color:#5c5340;}
-.mptile .own{ position:absolute; top:12px; right:2px; font-size:.58rem; font-weight:900;
-  border-radius:999px; padding:0 5px; color:#fff;}
-.mptile .lv{ position:absolute; bottom:2px; left:3px; font-size:.6rem; color:#b8860b;}
-.mptile.hl{ outline:3px solid #ffd23f; }
-.tokens{ position:absolute; bottom:2px; right:3px; font-size:.66rem; letter-spacing:1px;}
-.mpdice{ display:flex; gap:10px; margin:6px 0;}
-.mpdie{ width:44px; height:44px; background:#fff; border:2.5px solid #333;
-  border-radius:9px; display:flex; align-items:center; justify-content:center;
-  font-weight:900; font-size:1.5rem; box-shadow:0 3px 6px rgba(0,0,0,.25);}
-.mpplayers{ display:flex; flex-direction:column; gap:4px; margin:6px 0; width:100%;}
-.mpp{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.65);
-  border-radius:8px; padding:3px 8px; font-size:.8rem; font-weight:800; color:#3a2c14;}
-.mpp .dot{ width:12px; height:12px; border-radius:50%; }
+  background:linear-gradient(160deg,#e8dcc0 0%,#dcc9a0 60%,#cdb98e 100%);
+  border:10px solid transparent;
+  border-image:linear-gradient(160deg,#6b4423,#3d2712 40%,#8a5a2e 75%,#3d2712) 1;
+  border-radius:14px; padding:8px; max-width:680px; margin:0 auto;
+  box-shadow:0 14px 30px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,215,130,.5);}
+.mpcenter{ grid-area:2/2/7/7; position:relative; overflow:hidden;
+  background:radial-gradient(ellipse at center,#f6efdc 0%,#e7d9b4 70%,#d9c69a 100%);
+  border:2px dashed #b89968; border-radius:10px; padding:10px 12px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; color:#3a2c14;}
+.mpcenter::before{ content:'\u5bcc'; position:absolute; font-family:serif; font-weight:900;
+  font-size:9rem; color:rgba(176,137,60,.13); top:50%; left:50%;
+  transform:translate(-50%,-52%); pointer-events:none;}
+.mptitle{ font-weight:900; font-size:1.02rem; letter-spacing:.14em; color:#7a3b00;
+  margin-bottom:2px;}
+.mpsub{ font-family:'Share Tech Mono',monospace; font-size:.62rem; color:#a08450;
+  letter-spacing:.3em; margin-bottom:4px;}
+.mpsky{ font-size:1.05rem; letter-spacing:.3em; margin-bottom:2px; opacity:.9;}
+.mpdice{ display:flex; gap:12px; margin:8px 0;}
+.mpdie{ width:52px; height:52px; background:linear-gradient(160deg,#ffffff,#e8e2d2);
+  border:2.5px solid #3a2c14; border-radius:10px; display:grid;
+  grid-template:repeat(3,1fr)/repeat(3,1fr); padding:6px;
+  box-shadow:0 4px 8px rgba(0,0,0,.3), inset 0 2px 0 rgba(255,255,255,.8);}
+.mpdie .pip{ border-radius:50%; background:#b03024; align-self:center;
+  justify-self:center; width:70%; height:70%;
+  box-shadow:inset 0 -1px 1px rgba(0,0,0,.4);}
+.mpplayers{ display:flex; flex-direction:column; gap:5px; margin:7px 0; width:100%;}
+.mpp{ display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.75);
+  border:1.5px solid rgba(138,90,46,.35); border-radius:10px; padding:4px 10px;
+  font-size:.82rem; font-weight:800; color:#3a2c14;}
+.mpp.active{ border-color:#b03024; box-shadow:0 0 0 2px rgba(176,48,36,.25);
+  background:#fff8e8;}
+.mpp .ava{ width:26px; height:26px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; font-size:.95rem; color:#fff; flex:none;
+  box-shadow:0 2px 4px rgba(0,0,0,.3);}
+.mpp .cash{ margin-left:auto; font-family:'Share Tech Mono',monospace;}
 .mpp.broke{ opacity:.4; text-decoration:line-through;}
+.rprog{ width:100%; height:8px; background:rgba(138,90,46,.25); border-radius:6px;
+  overflow:hidden; margin:6px 0 2px; border:1px solid rgba(138,90,46,.3);}
+.rprogf{ height:100%; background:linear-gradient(90deg,#e8a93d,#c0392b);
+  border-radius:6px; transition:width .5s;}
+.rplbl{ font-size:.66rem; color:#7a5c30; font-weight:800; margin-bottom:2px;
+  font-family:'Share Tech Mono',monospace;}
+.mptile{ position:relative; background:linear-gradient(180deg,#fffdf4,#faf3e0);
+  border:1.5px solid #8a7a52; border-radius:6px; min-height:64px; padding:3px 4px;
+  overflow:hidden; display:flex; flex-direction:column;
+  box-shadow:inset 0 -3px 0 rgba(138,90,46,.18);}
+.mptile .strip{ height:10px; border-radius:3px; margin:-3px -4px 3px;
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15);}
+.mptile .nm{ font-weight:800; font-size:.68rem; line-height:1.15; color:#1c1710;}
+.mptile .pr{ font-size:.62rem; color:#5c5340; font-weight:700;}
+.mptile .sicon{ font-size:1.15rem; text-align:center; margin-top:1px;}
+.mptile .own{ position:absolute; top:12px; right:2px; font-size:.58rem; font-weight:900;
+  border-radius:999px; padding:0 5px; color:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.4);}
+.mptile .lv{ position:absolute; bottom:2px; left:3px; font-size:.6rem; color:#b8860b;
+  text-shadow:0 0 4px rgba(255,210,63,.7);}
+.mptile .tokens{ position:absolute; bottom:2px; right:3px; font-size:.62rem;}
+.mptile .tokens b{ text-shadow:0 0 5px currentColor;}
+.mptile.start{ background:linear-gradient(160deg,#e84c3d,#b03024); }
+.mptile.start .nm{ color:#fff; font-weight:900; text-shadow:0 1px 2px rgba(0,0,0,.4);}
+.mptile.start .go{ font-size:1rem; text-align:center; margin-top:2px;}
+.mptile.hl{ outline:3px solid #ffd23f; z-index:2;}
+.mpprompt{ font-weight:900; color:#7a3b00; margin:5px 0; font-size:.92rem;}
 .mpbtn{ background:linear-gradient(180deg,#e05548,#a02c22); color:#fff; font-weight:900;
   border-radius:10px; padding:7px 20px; cursor:pointer; font-size:.95rem;
   box-shadow:0 4px 0 rgba(0,0,0,.3);}
+.mpbtn:active{ transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,.3);}
 .mpbtn.green{ background:linear-gradient(180deg,#6fe08a,#1e8449);}
 .mpbtn.grey{ background:linear-gradient(180deg,#6b7488,#3d4454);}
 .mpbtn.gold{ background:linear-gradient(180deg,#e8a93d,#a8700f);}
-.mpprompt{ font-weight:900; color:#7a3b00; margin:5px 0;}
-.mplog{ font-size:.68rem; color:#5c5340; max-height:70px; overflow:hidden;
-  width:100%; text-align:left; margin-top:6px; line-height:1.35;}
-.mpover{ font-weight:900; font-size:1.05rem; margin:4px 0; color:#3a2c14;}
+.mplog{ font-size:.66rem; color:#6b5638; max-height:74px; overflow:hidden;
+  width:100%; text-align:left; margin-top:6px; line-height:1.4;}
+.mpover{ font-weight:900; font-size:1.05rem; margin:4px 0; color:#7a3b00;}
 """
 
 MP_JS = """
@@ -453,46 +491,64 @@ export default function (component) {
   const d = component.data || {};
   const root = component.parentElement.querySelector('#mproot');
   if (!root) return;
-  const PLAYER_COLORS = ['#ff5c5c', '#4a7fd6', '#2ea86b'];
-  // ring positions for 24 tiles on a 7x7 grid (1-based css grid lines)
+  const PC = ['#ff5c5c', '#4a7fd6', '#2ea86b'];
+  const AVA = d.avatars || ['\\uD83D\\uDD76\\uFE0F', '\\uD83D\\uDC74', '\\uD83D\\uDC75'];
   const pos = [];
-  for (let c = 7; c >= 1; c--) pos.push({ r: 7, c });        // 0..6  bottom (right→left)
-  for (let r = 6; r >= 2; r--) pos.push({ r, c: 1 });        // 7..11 left (bottom→top)
-  for (let c = 1; c <= 7; c++) pos.push({ r: 1, c });        // 12..18 top (left→right)
-  for (let r = 2; r <= 6; r++) pos.push({ r, c: 7 });        // 19..23 right (top→bottom)
-
+  for (let c = 7; c >= 1; c--) pos.push({ r: 7, c });
+  for (let r = 6; r >= 2; r--) pos.push({ r, c: 1 });
+  for (let c = 1; c <= 7; c++) pos.push({ r: 1, c });
+  for (let r = 2; r <= 6; r++) pos.push({ r, c: 7 });
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  const die = n => {
+    const cells = [1,2,3,4,5,6,7,8,9].map(cell => {
+      const on = (PIPS[n] || []).includes(cell - 1);
+      return '<span style="grid-area:' + Math.ceil(cell/3) + '/' + ((cell-1)%3+1) +
+        ';display:flex;align-items:center;justify-content:center;">' +
+        (on ? '<i class="pip"></i>' : '') + '</span>';
+    }).join('');
+    return '<div class="mpdie">' + cells + '</div>';
+  };
+  const STAR = '\\u2605', DOT = '\\u25CF';
   let h = '<div class="mpboard">';
   for (let t = 0; t < 24; t++) {
     const info = d.tiles[t];
     const p = pos[t];
-    const own = info.owner >= 0 ? ('<span class="own" style="background:' +
-      PLAYER_COLORS[info.owner] + '">' + d.own_marks[info.owner] + '</span>') : '';
-    const lv = info.level > 1 ? '<span class="lv">' + '★'.repeat(info.level - 1) + '</span>' : '';
+    const own = info.owner >= 0 ? ('<span class="own" style="background:' + PC[info.owner] + '">' +
+      (d.own_marks[info.owner] || '') + '</span>') : '';
+    const lv = info.level > 1 ? '<span class="lv">' + STAR.repeat(info.level - 1) + '</span>' : '';
     const tokens = d.positions.map((pp, pi) => pp === t ?
-      '<span style="color:' + PLAYER_COLORS[pi] + '">●</span>' : '').join('');
+      '<b style="color:' + PC[pi] + ';">' + DOT + '</b>' : '').join('');
+    const isStart = info.kind === 'start';
     const hl = (d.hl === t) ? ' hl' : '';
-    h += '<div class="mptile' + hl + '" style="grid-area:' + p.r + '/' + p.c + ';">' +
-      '<div class="strip" style="background:' + info.color + '"></div>' +
-      '<div class="nm">' + info.name + '</div>' +
-      (info.price ? '<div class="pr">$' + info.price + '</div>' : '') +
-      own + lv +
+    let body;
+    if (isStart) {
+      body = '<div class="go">\\uFF8A\\uFF8F\\uFF92\\uFF93</div><div class="nm">\\u8D77\\u9EDE GO</div>';
+    } else if (info.icon) {
+      body = '<div class="sicon">' + info.icon + '</div><div class="nm">' + info.name + '</div>';
+    } else {
+      body = '<div class="nm">' + info.name + '</div><div class="pr">$' + info.price + '</div>';
+    }
+    h += '<div class="mptile' + (isStart ? ' start' : '') + hl + '" style="grid-area:' + p.r + '/' + p.c + ';">' +
+      '<div class="strip" style="background:' + info.color + '"></div>' + body + own + lv +
       (tokens ? '<div class="tokens">' + tokens + '</div>' : '') + '</div>';
   }
   h += '<div class="mpcenter">';
-  h += '<div class="mpdice">' +
-    '<div class="mpdie">' + (d.dice ? d.dice[0] : '?') + '</div>' +
-    '<div class="mpdie">' + (d.dice ? d.dice[1] : '?') + '</div></div>';
+  h += '<div class="mptitle">\\u6E2F\\u5F0F\\u5927\\u5BCC\\u7FC1</div>';
+  h += '<div class="mpsub">M O N O P O L Y \\u00B7 H K</div>';
+  h += '<div class="mpsky">\\uD83C\\uDFD9\\uFE0F \\uD83C\\uDF09 \\uD83C\\uDFD9\\uFE0F</div>';
+  h += '<div class="mpdice">' + die(d.dice ? d.dice[0] : 0) + die(d.dice ? d.dice[1] : 0) + '</div>';
+  h += '<div class="rplbl">' + d.round_lbl + ' ' + d.round + ' / ' + d.max_rounds + '</div>';
+  h += '<div class="rprog"><div class="rprogf" style="width:' +
+       Math.round(100 * d.round / d.max_rounds) + '%"></div></div>';
   h += '<div class="mpplayers">';
   d.names.forEach((n, i) => {
-    h += '<div class="mpp' + (d.alive[i] ? '' : ' broke') + '">' +
-      '<span class="dot" style="background:' + PLAYER_COLORS[i] + '"></span>' + n +
-      '　$' + d.cash[i] + '</div>';
+    h += '<div class="mpp' + (d.turn === i ? ' active' : '') + (d.alive[i] ? '' : ' broke') + '">' +
+      '<span class="ava" style="background:' + PC[i] + '">' + AVA[i] + '</span>' + n +
+      '<span class="cash">$' + d.cash[i] + '</span></div>';
   });
   h += '</div>';
   h += '<div class="mpprompt">' + (d.prompt || '') + '</div>';
-  if (d.over) {
-    h += '<div class="mpover">' + d.over + '</div>';
-  }
+  if (d.over) h += '<div class="mpover">' + d.over + '</div>';
   h += '<div class="abar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
   if (!d.over) {
     if (d.await_buy) {
@@ -520,9 +576,14 @@ export default function (component) {
 MP_BOARD = st.components.v2.component(
     "hkmon_mp_board", html="<div id='mproot'></div>", css=MP_CSS, js=MP_JS)
 
+MP_BOARD = st.components.v2.component(
+    "hkmon_mp_board", html="<div id='mproot'></div>", css=MP_CSS, js=MP_JS)
+
 
 def mp_view(g, own_marks, txts):
     import hkmon_monopoly as MP
+    ICONS = {"chance": "\u2753", "fate": "\U0001F52E", "tax": "\U0001F9FE",
+             "park": "\U0001F304", "start": "\U0001F6A9"}
     tiles = []
     for t in range(24):
         pr = MP.TILE_PROPS.get(t)
@@ -532,10 +593,13 @@ def mp_view(g, own_marks, txts):
             tiles.append({"name": pr["zh"], "price": pr["price"],
                           "color": MP.GROUPS[pr["group"]],
                           "owner": own.get("owner", -1),
-                          "level": own.get("level", 1)})
+                          "level": own.get("level", 1),
+                          "kind": "prop", "icon": ""})
         else:
             tiles.append({"name": sp.get("zh", "?"), "price": 0,
-                          "color": "#8a7a52", "owner": -1, "level": 1})
+                          "color": "#8a7a52", "owner": -1, "level": 1,
+                          "kind": sp.get("kind", ""),
+                          "icon": ICONS.get(sp.get("kind", ""), "")})
     aw = g["await"]
     prompt, await_buy, await_upgrade = "", False, False
     if aw and aw["type"] == "buy":
@@ -559,6 +623,11 @@ def mp_view(g, own_marks, txts):
         "alive": list(g["alive"]),
         "names": list(g["names"]),
         "own_marks": own_marks,
+        "avatars": ["\U0001F576\uFE0F", "\U0001F9D4", "\U0001F475"],
+        "turn": 0 if g["await"] else 0,
+        "hl": g["pos"][0] if g["await"] else -1,
+        "round_lbl": "\u56de\u5408",
+        "max_rounds": MP.MAX_ROUNDS,
         "dice": g["dice"],
         "round": g["round"],
         "await_buy": await_buy,

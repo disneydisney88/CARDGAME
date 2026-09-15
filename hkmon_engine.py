@@ -379,67 +379,97 @@ def _est_dmg(atk, dfd, move):
 
 
 def ai_action(state):
-    """Enemy picks attack / item / switch, then executes it."""
+    """Enemy turn with tactical layers.
+
+    Tactics by difficulty:
+      easy   : semi-random moves, rarely uses items
+      normal : greedy damage + heals when low
+      hard   : kill-shot detection, buff-before-nuke, status pressure,
+               opportunistic switching to a favourable matchup, smart items
+    """
     if state["over"]:
         return
     diff = state["diff"]
     e = active(state, "e")
     p = active(state, "p")
     lang = state["lang"]
+    e_hp_pct = e["hp"] / e["mhp"]
+    p_hp_pct = p["hp"] / p["mhp"]
 
-    # maybe use an item first (normal/hard)
+    # ---- items first (normal/hard) ----
     if diff != "easy" and state["eitems"]:
-        e_hp_pct = e["hp"] / e["mhp"]
-        heal_ids = [i for i in state["eitems"] if D.ITEM[i]["effect"]["kind"] in ("heal", "heal_cure_burn", "cure")]
+        heal_ids = [i for i in state["eitems"]
+                    if D.ITEM[i]["effect"]["kind"] in ("heal", "heal_cure_burn", "cure")]
+        buff_ids = [i for i in state["eitems"]
+                    if D.ITEM[i]["effect"]["kind"] == "buff"]
+        shield_ids = [i for i in state["eitems"]
+                      if D.ITEM[i]["effect"]["kind"] == "shield"]
+        direct_ids = [i for i in state["eitems"]
+                      if D.ITEM[i]["effect"]["kind"] == "direct"]
         if e_hp_pct < 0.35 and heal_ids:
             use_item(state, "e", heal_ids[0])
             return
-        shield_ids = [i for i in state["eitems"] if D.ITEM[i]["effect"]["kind"] == "shield"]
-        if e_hp_pct < 0.55 and shield_ids and random.random() < 0.5:
+        if shield_ids and e_hp_pct < 0.55 and random.random() < 0.5:
             use_item(state, "e", shield_ids[0])
             return
-        direct_ids = [i for i in state["eitems"] if D.ITEM[i]["effect"]["kind"] == "direct"]
-        if direct_ids and p["hp"] / p["mhp"] < 0.3:
+        if direct_ids and p_hp_pct < 0.3:
             use_item(state, "e", direct_ids[0])
             return
+        if buff_ids and e_hp_pct > 0.6 and e["cd2"] == 0 and random.random() < 0.4:
+            use_item(state, "e", buff_ids[0])      # buff up before the big hit
+            return
 
-    # hard: opportunistic switch to a better matchup
-    if diff == "hard" and random.random() < 0.25 and e["hp"] / e["mhp"] > 0.5:
-        cur = _est_dmg(e, p, D.MOVE1[D.MON[e["id"]]["type"]][0])
-        best, best_gain = None, 1.0
+    # ---- hard: switch to a favourable matchup ----
+    if diff == "hard" and e_hp_pct > 0.5 and random.random() < 0.3:
         p_type = D.MON[p["id"]]["type"]
+        e_type = D.MON[e["id"]]["type"]
+        cur_mult = D.eff_mult(e_type, p_type)
+        best, best_score = None, cur_mult * 100 + e_hp_pct * 40
         for i, f in enumerate(state["e"]):
             if f["hp"] <= 0 or i == state["ea"]:
                 continue
-            gain = D.eff_mult(D.MON[f["id"]]["type"], p_type) / max(D.eff_mult(D.MON[e["id"]]["type"], p_type), 0.1)
-            if gain > best_gain:
-                best, best_gain = i, gain
+            mult = D.eff_mult(D.MON[f["id"]]["type"], p_type)
+            score = mult * 100 + (f["hp"] / f["mhp"]) * 60
+            if score > best_score:
+                best, best_score = i, score
         if best is not None:
             switch_mon(state, "e", best)
             return
 
-    # paralysis skip
+    # ---- paralysis skip ----
     if e["status"] == "para" and random.random() < PARA_SKIP:
         _log(state, "m_para_skip", n=_name(lang, e["id"]))
         return
 
-    # choose a move
+    # ---- tactical move selection ----
     card = D.MON[e["id"]]
     mv1 = _move1(card, state["e"].index(e))
+    m2 = card["move2"]
     can2 = e["cd2"] == 0
     est1 = _est_dmg(e, p, mv1)
-    est2 = _est_dmg(e, p, card["move2"]) if can2 else -1
+    est2 = _est_dmg(e, p, m2) if can2 else -1
+
+    def tactic_score(move, est, is2):
+        sc = est
+        if est >= p["hp"] and not p["shield"]:
+            sc += 500                              # guaranteed knockout
+        eff = move.get("effect") or {}
+        if eff.get("status") and not p["status"] and eff["chance"] >= 0.2:
+            sc += 15                               # pressure with status
+        if is2 and e["buff"] > 0:
+            sc += 30                               # spend the buff on the big hit
+        return sc
 
     if diff == "easy":
         use2 = can2 and random.random() < 0.5
     elif diff == "normal":
-        use2 = can2 and (est2 > est1 * 1.15 or random.random() < 0.4)
+        use2 = can2 and (est2 >= p["hp"] or est2 > est1 * 1.2 or random.random() < 0.35)
     else:
-        use2 = can2 and (est2 >= p["hp"] or est2 > est1 * 1.1)
+        use2 = can2 and tactic_score(m2, est2, True) > tactic_score(mv1, est1, False)
 
     if use2:
-        e["cd2"] = card["move2"]["cd"]
-        _apply_damage(state, "e", card["move2"], card["move2"]["name"][lang], True)
+        e["cd2"] = m2["cd"]
+        _apply_damage(state, "e", m2, m2["name"][lang], True)
     else:
         _apply_damage(state, "e", mv1, mv1["name"][lang], False)
 
