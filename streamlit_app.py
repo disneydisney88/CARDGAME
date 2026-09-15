@@ -671,10 +671,10 @@ elif st.session_state.page == "pvp":
 
         st.markdown(f"**{t(lang(),'p1_pick')}**")
         s1 = st.pills("p1_deck", deck_ids, format_func=deck_label,
-                      selection_mode="single", default="d1", key="pv_p1_deck")
+                      selection_mode="single", default="d1", key="pv_p1_pills")
         st.markdown(f"**{t(lang(),'p2_pick')}**")
         s2 = st.pills("p2_deck", deck_ids, format_func=deck_label,
-                      selection_mode="single", default="d3", key="pv_p2_deck")
+                      selection_mode="single", default="d3", key="pv_p2_pills")
         st.session_state.pv_p1_deck = (s1[0] if isinstance(s1, list) else s1) or "d1"
         st.session_state.pv_p2_deck = (s2[0] if isinstance(s2, list) else s2) or "d3"
 
@@ -715,7 +715,7 @@ elif st.session_state.page == "pvp":
             with a:
                 st.markdown(f"**{t(lang(),'online_create')}**")
                 cs = st.pills("on_p1_deck", deck_ids, format_func=deck_label,
-                              selection_mode="single", default="d1", key="on_p1_deck")
+                              selection_mode="single", default="d1", key="on_p1_pills")
                 st.session_state.on_p1_deck = (cs[0] if isinstance(cs, list) else cs) or "d1"
                 if st.button(t(lang(), "online_create"), type="primary"):
                     cb_online_create()
@@ -723,7 +723,7 @@ elif st.session_state.page == "pvp":
             with b_:
                 st.markdown(f"**{t(lang(),'online_join')}**")
                 js = st.pills("on_p2_deck", deck_ids, format_func=deck_label,
-                              selection_mode="single", default="d3", key="on_p2_deck")
+                              selection_mode="single", default="d3", key="on_p2_pills")
                 st.session_state.on_p2_deck = (js[0] if isinstance(js, list) else js) or "d3"
                 st.text_input(t(lang(), "enter_code"), max_chars=4, key="join_code_input")
                 if st.session_state.get("join_error"):
