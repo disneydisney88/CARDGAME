@@ -415,12 +415,12 @@ MP_CSS = """
   box-shadow:0 10px 24px rgba(0,0,0,.5);}
 .mpcenter{ grid-area:2/2/7/7; background:radial-gradient(ellipse at center,#f2ead2,#e0d2ac);
   border-radius:10px; padding:10px; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; text-align:center;}
+  align-items:center; justify-content:center; text-align:center; color:#3a2c14;}
 .mptile{ position:relative; background:#fffdf4; border:1.5px solid #8a7a52;
   border-radius:6px; min-height:64px; padding:3px 4px; overflow:hidden;
   display:flex; flex-direction:column;}
 .mptile .strip{ height:9px; border-radius:3px; margin:-3px -4px 3px; }
-.mptile .nm{ font-weight:800; font-size:.68rem; line-height:1.15;}
+.mptile .nm{ font-weight:800; font-size:.68rem; line-height:1.15; color:#1c1710;}
 .mptile .pr{ font-size:.62rem; color:#5c5340;}
 .mptile .own{ position:absolute; top:12px; right:2px; font-size:.58rem; font-weight:900;
   border-radius:999px; padding:0 5px; color:#fff;}
@@ -433,7 +433,7 @@ MP_CSS = """
   font-weight:900; font-size:1.5rem; box-shadow:0 3px 6px rgba(0,0,0,.25);}
 .mpplayers{ display:flex; flex-direction:column; gap:4px; margin:6px 0; width:100%;}
 .mpp{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.65);
-  border-radius:8px; padding:3px 8px; font-size:.8rem; font-weight:800;}
+  border-radius:8px; padding:3px 8px; font-size:.8rem; font-weight:800; color:#3a2c14;}
 .mpp .dot{ width:12px; height:12px; border-radius:50%; }
 .mpp.broke{ opacity:.4; text-decoration:line-through;}
 .mpbtn{ background:linear-gradient(180deg,#e05548,#a02c22); color:#fff; font-weight:900;
@@ -445,7 +445,7 @@ MP_CSS = """
 .mpprompt{ font-weight:900; color:#7a3b00; margin:5px 0;}
 .mplog{ font-size:.68rem; color:#5c5340; max-height:70px; overflow:hidden;
   width:100%; text-align:left; margin-top:6px; line-height:1.35;}
-.mpover{ font-weight:900; font-size:1.05rem; margin:4px 0;}
+.mpover{ font-weight:900; font-size:1.05rem; margin:4px 0; color:#3a2c14;}
 """
 
 MP_JS = """
@@ -564,6 +564,8 @@ def mp_view(g, own_marks, txts):
         "await_buy": await_buy,
         "await_upgrade": await_upgrade,
         "prompt": prompt + f"　({g['round']}/{MP.MAX_ROUNDS})",
+        "roll_txt": txts["roll"], "buy_txt": txts["buy"], "skip_txt": txts["skip"],
+        "up_txt": txts["upgrade"], "again_txt": txts["again"],
         "over": over,
         "log": list(reversed(g["log"][-6:])),
         "txts": txts,
